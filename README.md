@@ -21,6 +21,9 @@ you. That's why Aurora has three layers: where pixels can be owned they
 are, and where they can't, the *content* is curated server-side (home rows)
 so every client still feels deliberately designed.
 
+**Full step-by-step install (both pieces, including how they connect to
+Jellyfin): [INSTALL.md](INSTALL.md).**
+
 ## Quick start
 
 ### Theme (2 minutes)
@@ -44,9 +47,12 @@ docker compose up -d --build
 ```
 Rules support: type, genre, sort (incl. Random), rating floor,
 released/added windows, decades, runtime caps, tags, parental ratings.
-Rows appear in **all** clients as collections; on web/TV-web, pin them via
-Home sections and they render as Netflix rows under the theme. Full
-reference in [`homerows/rows.yml`](homerows/rows.yml).
+Rows appear in **all** clients under each library's Collections view —
+rendered as cinematic rows wherever the theme applies. (Stock Jellyfin
+home sections are fixed types and can't pin arbitrary collections; the
+rows live one click away, and that's true of every honest solution.)
+Full reference in [`homerows/rows.yml`](homerows/rows.yml); complete
+walkthrough in [INSTALL.md](INSTALL.md).
 
 ## Design language
 

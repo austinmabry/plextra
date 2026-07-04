@@ -1,5 +1,12 @@
 # Security model
 
+> **Per-box switch:** at-rest encryption is controlled by `ENCRYPTION=vault|plain`
+> in `.env`. This document describes `vault` mode. In `plain` mode the
+> at-rest row of the table below simply doesn't apply — the library is a
+> normal directory (appropriate when the box's disk is already
+> full-disk-encrypted, or physical access just isn't in your threat model) —
+> while the TLS/in-transit and no-sharing posture remain in full effect.
+
 ## What "fully encrypted" means here
 
 There are three places media can be attacked: **on disk**, **on the wire**,

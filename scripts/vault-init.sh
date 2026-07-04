@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # One-time creation of the encrypted media vault (gocryptfs).
+# Only needed when ENCRYPTION=vault in .env — plain boxes skip this entirely.
 #
 # VAULT_DIR   holds only ciphertext — filenames and contents are encrypted
 #             (AES-256-GCM, filename encryption with EME). Safe to back up raw.
 # MEDIA_MOUNT is the plaintext view, which exists only while unlocked.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -f .env ] || { echo "No .env found — run scripts/setup.sh first." >&2; exit 1; }
 # shellcheck disable=SC1091
-source .env
+source scripts/lib.sh
+load_env
+
+if ! is_vault; then
+    echo "ENCRYPTION=plain in .env — no vault needed. Just run ./scripts/start.sh."
+    exit 0
+fi
 
 command -v gocryptfs >/dev/null || {
     echo "gocryptfs is not installed. Debian/Ubuntu: sudo apt install gocryptfs" >&2

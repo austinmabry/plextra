@@ -29,13 +29,17 @@ features, no accounts but yours.
 | Audiobooks | Audiobookshelf | Audiobookshelf iOS/Android apps, web |
 | Ebooks | Audiobookshelf | Web reader (EPUB/PDF/CBZ), send-to-Kindle |
 
-**Encryption model** — media files, all metadata, watch history, and both app
+**Encryption model** — at-rest encryption is a per-box switch
+(`ENCRYPTION=vault|plain` in `.env`); everything else is identical in both
+modes. With `vault`, media files, all metadata, watch history, and both app
 databases live inside a [gocryptfs](https://nuetzlich.net/gocryptfs/) vault
-(AES-256-GCM content encryption, EME filename encryption). The decrypted view
-exists only while the stack is running; `./scripts/stop.sh` re-locks it. All
-client traffic is TLS 1.3 via Caddy. See [docs/SECURITY.md](docs/SECURITY.md)
-for the full threat model, including why "true E2EE" and GPU transcoding are
-mutually exclusive and what this design protects instead.
+(AES-256-GCM content encryption, EME filename encryption); the decrypted view
+exists only while the stack is running, and `./scripts/stop.sh` re-locks it.
+With `plain`, the library is a normal directory — right for boxes where disk
+encryption isn't wanted or the disk is already FDE. Either way, all client
+traffic is TLS 1.3 via Caddy. See [docs/SECURITY.md](docs/SECURITY.md) for the
+full threat model, including why "true E2EE" and GPU transcoding are mutually
+exclusive and what this design protects instead.
 
 **Playback model** — direct play first, always. Jellyfin only transcodes when
 the client genuinely can't play the file, and when it does, decoding (NVDEC)
@@ -53,15 +57,18 @@ DLNA and all remote-share plugins stay uninstalled.
 - Linux host with Docker + Compose v2
 - NVIDIA GPU with NVENC (GTX 10-series or newer recommended) + driver +
   [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-- `gocryptfs` (`sudo apt install gocryptfs`)
+- `gocryptfs` (`sudo apt install gocryptfs`) — **only** if using at-rest encryption
 
 ## Quick start
 
 ```bash
-./scripts/setup.sh        # checks prerequisites, writes .env
-./scripts/vault-init.sh   # create the encrypted vault (one time — SAVE THE MASTER KEY)
-./scripts/start.sh        # unlock vault + launch stack
+./scripts/setup.sh        # checks prerequisites, asks encrypted vs plain, writes .env
+./scripts/vault-init.sh   # vault mode only, one time — SAVE THE MASTER KEY
+./scripts/start.sh        # launch (unlocks the vault first when in vault mode)
 ```
+
+On an unencrypted box, `setup.sh` → answer `n` to encryption → `start.sh`.
+That's the whole difference; every other command and doc applies unchanged.
 
 Then open `https://media.local` (or your hostname), run the Jellyfin wizard,
 and follow **[docs/POST-INSTALL.md](docs/POST-INSTALL.md)** — it's short and
@@ -77,12 +84,17 @@ $MEDIA_MOUNT/media/audiobooks/  Author/Title/Title.m4b
 $MEDIA_MOUNT/media/ebooks/      Author/Title.epub
 ```
 
-Daily driving:
+Daily driving (identical in both modes — the scripts detect the mode from `.env`):
 
 ```bash
-./scripts/start.sh   # unlock + up (asks for the vault password)
-./scripts/stop.sh    # down + lock (disk holds only ciphertext)
+./scripts/start.sh   # up (vault mode: asks the vault password first)
+./scripts/stop.sh    # down (vault mode: re-locks, disk holds only ciphertext)
 ```
+
+One behavioral difference: in plain mode the containers auto-start on boot
+(`restart: unless-stopped`, no password needed). In vault mode you run
+`start.sh` once per reboot — the price of the vault password never touching
+disk.
 
 ## Remote access
 

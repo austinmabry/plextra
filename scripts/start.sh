@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Unlock the vault, then start the stack.
+# Prepare the media root (unlocks the vault when ENCRYPTION=vault,
+# no-op prep when ENCRYPTION=plain), then start the stack.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

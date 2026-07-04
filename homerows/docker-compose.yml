@@ -10,7 +10,7 @@ services:
     # A) Simplest when Jellyfin runs on this same machine: share the host's
     #    network (outbound-only service, so this is safe), then use
     #    JELLYFIN_URL=http://127.0.0.1:8096
-    # network_mode: host
+    network_mode: host
     #
     # B) Jellyfin is a container on this host: join its network and use
     #    JELLYFIN_URL=http://<jellyfin-container-name>:8096

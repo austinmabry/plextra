@@ -39,16 +39,38 @@ INTERVAL = int(os.environ.get("INTERVAL_SECONDS", "21600"))
 PREFIX = os.environ.get("ROW_PREFIX", "")  # e.g. "· " to group/sort rows
 
 
-def api(path: str, method: str = "GET", params: dict | None = None):
+def api(path: str, method: str = "GET", params: dict | None = None,
+        timeout: int = 60):
     url = BASE + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, method=method)
     req.add_header("X-Emby-Token", KEY)
     req.add_header("Accept", "application/json")
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = resp.read()
     return json.loads(body) if body else None
+
+
+def probe() -> bool:
+    """Fast, unauthenticated reachability check with actionable guidance."""
+    try:
+        api("/System/Info/Public", timeout=8)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.error("cannot reach Jellyfin at %s (%s)", BASE, e)
+        log.error("checklist:")
+        log.error(" 1) JELLYFIN_URL must be reachable FROM INSIDE this container:")
+        log.error("    use the host's LAN IP, never localhost/127.0.0.1, and")
+        log.error("    never a 172.x Docker IP from another compose project")
+        log.error(" 2) Jellyfin in Docker on this host? either join its network")
+        log.error("    and use http://<container-name>:8096, or uncomment")
+        log.error("    'network_mode: host' in docker-compose.yml")
+        log.error(" 3) Unraid br0/macvlan: bridge containers cannot reach br0 IPs")
+        log.error("    unless Settings > Docker > 'Host access to custom networks'")
+        log.error("    is enabled")
+        log.error(" 4) don't use the mesh/VPN hostname here — plain LAN URL only")
+        return False
 
 
 def build_query(rule: dict) -> dict:
@@ -151,10 +173,15 @@ def sync_all() -> None:
 
 def main() -> None:
     if os.environ.get("RUN_ONCE"):
+        if not probe():
+            sys.exit(1)
         sync_all()
         return
     log.info("homerows started; syncing every %ss from %s", INTERVAL, CONFIG)
     while True:
+        if not probe():
+            time.sleep(60)  # retry connectivity soon, not in 6 hours
+            continue
         try:
             sync_all()
         except Exception as e:  # noqa: BLE001

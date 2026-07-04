@@ -6,6 +6,19 @@ services:
     build: .
     container_name: aurora-homerows
     restart: unless-stopped
+    # --- Can't reach Jellyfin (timeouts)? Pick ONE of these three fixes ---
+    # A) Simplest when Jellyfin runs on this same machine: share the host's
+    #    network (outbound-only service, so this is safe), then use
+    #    JELLYFIN_URL=http://127.0.0.1:8096
+    # network_mode: host
+    #
+    # B) Jellyfin is a container on this host: join its network and use
+    #    JELLYFIN_URL=http://<jellyfin-container-name>:8096
+    # networks: [jellyfin]
+    #
+    # C) Reach the Docker host by name from inside the container, with
+    #    JELLYFIN_URL=http://host.docker.internal:8096
+    # extra_hosts: ["host.docker.internal:host-gateway"]
     environment:
       - JELLYFIN_URL=${JELLYFIN_URL}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
@@ -13,3 +26,10 @@ services:
       - ROW_PREFIX=${ROW_PREFIX:-}
     volumes:
       - ./rows.yml:/config/rows.yml:ro
+
+# For option B: name of the external network Jellyfin is attached to —
+# find it with `docker inspect <jellyfin-container> | grep -A3 Networks`
+# networks:
+#   jellyfin:
+#     external: true
+#     name: <that-network-name>

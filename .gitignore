@@ -5,3 +5,4 @@ gocryptfs.conf
 # generated at runtime from config.template.yaml / by mesh-init.sh
 headscale/config.yaml
 headscale/data/
+__pycache__/

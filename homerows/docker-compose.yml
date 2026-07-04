@@ -1,0 +1,15 @@
+# Standalone runner for the home-rows engine. Point it at any Jellyfin.
+#   1. cp .env.example .env  (JELLYFIN_URL + JELLYFIN_API_KEY)
+#   2. docker compose up -d --build
+services:
+  homerows:
+    build: .
+    container_name: aurora-homerows
+    restart: unless-stopped
+    environment:
+      - JELLYFIN_URL=${JELLYFIN_URL}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - INTERVAL_SECONDS=${INTERVAL_SECONDS:-21600}
+      - ROW_PREFIX=${ROW_PREFIX:-}
+    volumes:
+      - ./rows.yml:/config/rows.yml:ro

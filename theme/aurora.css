@@ -1,0 +1,736 @@
+/* ============================================================================
+   AURORA — a cinematic theme for Jellyfin
+   Netflix's calm + Plex's warmth, rebuilt for jellyfin-web.
+
+   Applies to every client that runs the Jellyfin web UI: browsers, Jellyfin
+   Media Player / desktop, the LG webOS app, and the Samsung Tizen app (all
+   of them fetch the server's Custom CSS). Native apps (iOS, Roku, Android,
+   Android TV, Swiftfin) render their own UI and cannot load CSS — pair this
+   theme with the Aurora home-rows engine, which reaches those clients
+   through the library itself.
+
+   Install: Dashboard → General → Branding → Custom CSS →
+            @import url("https://cdn.jsdelivr.net/gh/<you>/<repo>@<branch>/theme/aurora.css");
+   or paste this file's contents directly. Accent variants: see theme/variants/.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. DESIGN TOKENS — retheme everything from here
+   -------------------------------------------------------------------------- */
+:root {
+    /* Canvas: deep, slightly blue-black like a dark cinema */
+    --au-bg: #0c0d10;
+    --au-bg-2: #141519;
+    --au-surface: #1b1d22;
+    --au-surface-2: #24262c;
+    --au-line: rgba(255, 255, 255, 0.08);
+
+    /* Accent (default: aurora crimson; variants swap these three) */
+    --au-accent: #e13d49;
+    --au-accent-2: #ff5f6d;
+    --au-on-accent: #ffffff;
+
+    /* Text */
+    --au-text: #f4f5f7;
+    --au-text-dim: #a2a7b0;
+    --au-text-faint: #6b7078;
+
+    /* Shape & motion */
+    --au-radius: 8px;
+    --au-radius-lg: 14px;
+    --au-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+    --au-fast: 150ms;
+    --au-slow: 320ms;
+
+    /* Depth */
+    --au-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    --au-shadow-lift: 0 18px 44px rgba(0, 0, 0, 0.75);
+
+    /* Netflix-style card hover growth */
+    --au-card-grow: 1.06;
+
+    /* TV focus ring (webOS / Tizen d-pad navigation) */
+    --au-focus: 0 0 0 3px var(--au-accent), 0 0 24px rgba(225, 61, 73, 0.55);
+
+    /* Poster shimmer while images load */
+    --au-skeleton-a: #1a1c21;
+    --au-skeleton-b: #22252b;
+}
+
+/* --------------------------------------------------------------------------
+   2. CANVAS & TYPOGRAPHY
+   -------------------------------------------------------------------------- */
+html,
+.backgroundContainer,
+.backdropContainer,
+.skinBody {
+    background-color: var(--au-bg) !important;
+    color: var(--au-text);
+}
+
+.skinBody {
+    font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont,
+        Roboto, "Noto Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, .sectionTitle {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+a {
+    color: var(--au-accent-2);
+}
+
+/* Ambient wash behind backdrops instead of hard black */
+.backgroundContainer.withBackdrop {
+    background: radial-gradient(120% 90% at 70% 0%,
+            rgba(28, 30, 38, 0.55) 0%,
+            rgba(12, 13, 16, 0.94) 58%,
+            var(--au-bg) 100%) !important;
+}
+
+/* --------------------------------------------------------------------------
+   3. HEADER & NAVIGATION — floating glass, Netflix-style fade
+   -------------------------------------------------------------------------- */
+.skinHeader {
+    background: linear-gradient(180deg,
+            rgba(8, 9, 11, 0.92) 0%,
+            rgba(8, 9, 11, 0.55) 65%,
+            transparent 100%) !important;
+    backdrop-filter: blur(16px) saturate(1.5);
+    -webkit-backdrop-filter: blur(16px) saturate(1.5);
+    border: none;
+    transition: background var(--au-slow) var(--au-ease);
+}
+
+.skinHeader-withBackground {
+    background: rgba(10, 11, 14, 0.88) !important;
+}
+
+.pageTitle {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.headerTabs .emby-tab-button {
+    color: var(--au-text-dim);
+    font-weight: 600;
+    font-size: 1.02em;
+    letter-spacing: 0.01em;
+    opacity: 1;
+    transition: color var(--au-fast) var(--au-ease);
+}
+
+.headerTabs .emby-tab-button:hover {
+    color: var(--au-text);
+}
+
+.headerTabs .emby-tab-button.emby-tab-button-active {
+    color: var(--au-text);
+}
+
+.headerTabs .emby-tab-button.emby-tab-button-active .emby-button-foreground {
+    border-bottom: 3px solid var(--au-accent);
+    padding-bottom: 3px;
+}
+
+.headerButton {
+    color: var(--au-text-dim);
+    transition: color var(--au-fast) var(--au-ease),
+        transform var(--au-fast) var(--au-ease);
+}
+
+.headerButton:hover {
+    color: var(--au-text);
+    transform: scale(1.08);
+}
+
+/* Drawer */
+.mainDrawer {
+    background: rgba(16, 17, 21, 0.98) !important;
+    backdrop-filter: blur(24px);
+    border-right: 1px solid var(--au-line);
+}
+
+.navMenuOption {
+    border-radius: var(--au-radius);
+    margin: 2px 8px;
+    transition: background var(--au-fast) var(--au-ease);
+}
+
+.navMenuOption:hover {
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.navMenuOption-selected {
+    background: linear-gradient(90deg,
+            rgba(225, 61, 73, 0.22), rgba(225, 61, 73, 0.08)) !important;
+    color: var(--au-text) !important;
+}
+
+.navMenuOption-selected .navMenuOptionIcon {
+    color: var(--au-accent) !important;
+}
+
+/* --------------------------------------------------------------------------
+   4. CARDS — the Netflix row feel
+   -------------------------------------------------------------------------- */
+.cardBox {
+    border-radius: var(--au-radius);
+    overflow: hidden;
+    background: transparent;
+    transition: transform var(--au-slow) var(--au-ease),
+        box-shadow var(--au-slow) var(--au-ease);
+}
+
+/* grow + lift, with siblings staying put (Netflix zoom) */
+.card:hover .cardBox:not(.visualCardBox),
+.card:focus .cardBox:not(.visualCardBox) {
+    transform: scale(var(--au-card-grow)) translateY(-6px);
+    box-shadow: var(--au-shadow-lift);
+    z-index: 10;
+}
+
+.cardImageContainer,
+.cardPadder,
+.cardContent {
+    border-radius: var(--au-radius);
+}
+
+/* Skeleton shimmer while posters load */
+.cardPadder {
+    background: linear-gradient(100deg,
+            var(--au-skeleton-a) 40%,
+            var(--au-skeleton-b) 50%,
+            var(--au-skeleton-a) 60%);
+    background-size: 200% 100%;
+    animation: au-shimmer 1.6s linear infinite;
+}
+
+@keyframes au-shimmer {
+    to { background-position: -200% 0; }
+}
+
+.cardImageContainer {
+    background-color: var(--au-surface);
+}
+
+/* Hover overlay: bottom-weighted cinematic gradient + controls */
+.cardOverlayContainer {
+    border-radius: var(--au-radius);
+    background: linear-gradient(0deg,
+            rgba(5, 5, 8, 0.88) 0%,
+            rgba(5, 5, 8, 0.25) 50%,
+            transparent 100%);
+    opacity: 0;
+    transition: opacity var(--au-fast) var(--au-ease);
+}
+
+.card:hover .cardOverlayContainer,
+.card:focus .cardOverlayContainer {
+    opacity: 1;
+}
+
+.cardOverlayFab-primary {
+    background: var(--au-accent) !important;
+    color: var(--au-on-accent) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    transition: transform var(--au-fast) var(--au-ease),
+        background var(--au-fast) var(--au-ease);
+}
+
+.cardOverlayFab-primary:hover {
+    background: var(--au-accent-2) !important;
+    transform: scale(1.14);
+}
+
+.cardOverlayButton {
+    color: #fff;
+}
+
+.cardText {
+    color: var(--au-text);
+    font-weight: 500;
+    letter-spacing: 0.005em;
+}
+
+.cardText-secondary {
+    color: var(--au-text-dim);
+    font-size: 0.86em;
+}
+
+/* Watched check + unwatched count */
+.playedIndicator,
+.countIndicator {
+    background: var(--au-accent) !important;
+    color: var(--au-on-accent) !important;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+/* Resume progress on cards */
+.itemProgressBar {
+    background: rgba(255, 255, 255, 0.22) !important;
+    height: 4px !important;
+    border-radius: 2px;
+}
+
+.itemProgressBarForeground {
+    background: var(--au-accent) !important;
+    border-radius: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   5. TV / REMOTE FOCUS — essential on webOS & Tizen
+   -------------------------------------------------------------------------- */
+.card:focus .cardBox:not(.visualCardBox),
+.card .cardBox.cardBox-focustransform:focus {
+    box-shadow: var(--au-focus), var(--au-shadow-lift);
+    outline: none;
+}
+
+.emby-button:focus,
+.paper-icon-button-light:focus,
+.emby-input:focus,
+.emby-select:focus,
+.listItem:focus {
+    box-shadow: var(--au-focus);
+    outline: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   6. HOME & LIBRARY ROWS
+   -------------------------------------------------------------------------- */
+.sectionTitle,
+.sectionTitle-cards {
+    font-size: 1.3em;
+    margin-bottom: 0.35em;
+    color: var(--au-text);
+}
+
+.sectionTitleTextButton:hover {
+    color: var(--au-accent-2) !important;
+}
+
+/* room for the zoomed card so rows don't clip it */
+.itemsContainer.scrollSlider {
+    padding: 14px 0 18px;
+}
+
+.emby-scrollbuttons-button {
+    background: rgba(20, 21, 26, 0.85);
+    border-radius: 50%;
+    backdrop-filter: blur(8px);
+    transition: background var(--au-fast) var(--au-ease),
+        transform var(--au-fast) var(--au-ease);
+}
+
+.emby-scrollbuttons-button:hover {
+    background: var(--au-accent);
+    color: var(--au-on-accent);
+    transform: scale(1.08);
+}
+
+/* --------------------------------------------------------------------------
+   7. DETAIL PAGES — the hero treatment
+   -------------------------------------------------------------------------- */
+.detailPagePrimaryContainer {
+    background: linear-gradient(180deg,
+            transparent 0%,
+            rgba(12, 13, 16, 0.35) 30%,
+            rgba(12, 13, 16, 0.92) 78%,
+            var(--au-bg) 100%) !important;
+}
+
+.itemBackdrop {
+    filter: brightness(0.92) saturate(1.05);
+}
+
+.itemName.infoText {
+    font-size: 2.1em;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.85);
+}
+
+.parentName {
+    color: var(--au-text-dim);
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8);
+}
+
+.detailImageContainer .cardBox {
+    border-radius: var(--au-radius-lg);
+    box-shadow: var(--au-shadow-lift);
+}
+
+.overview {
+    color: var(--au-text-dim);
+    line-height: 1.65;
+    max-width: 72ch;
+}
+
+/* Info chips: rating, runtime, year, codec */
+.mediaInfoItem,
+.mediaInfoText,
+.starRatingContainer {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--au-line);
+    border-radius: 999px;
+    padding: 0.22em 0.85em;
+    color: var(--au-text-dim);
+    font-size: 0.92em;
+}
+
+.mediaInfoOfficialRating {
+    border: 1px solid var(--au-text-faint);
+    border-radius: 4px;
+    padding: 0.1em 0.5em;
+}
+
+/* Genre / tag links */
+.emby-linkbutton.button-link {
+    color: var(--au-text-dim);
+    transition: color var(--au-fast) var(--au-ease);
+}
+
+.emby-linkbutton.button-link:hover {
+    color: var(--au-accent-2);
+}
+
+/* People cards */
+.personCard .cardText {
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   8. BUTTONS — hero pill CTAs
+   -------------------------------------------------------------------------- */
+.raised,
+.emby-button.raised {
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.62em 1.5em;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--au-text);
+    transition: background var(--au-fast) var(--au-ease),
+        transform var(--au-fast) var(--au-ease),
+        box-shadow var(--au-fast) var(--au-ease);
+}
+
+.raised:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
+}
+
+.raised.button-submit,
+.btnPlay.raised,
+.btnResume.raised,
+.mainDetailButtons .btnPlaystate.raised {
+    background: var(--au-accent) !important;
+    color: var(--au-on-accent) !important;
+    box-shadow: 0 6px 20px rgba(225, 61, 73, 0.35);
+}
+
+.raised.button-submit:hover,
+.btnPlay.raised:hover,
+.btnResume.raised:hover {
+    background: var(--au-accent-2) !important;
+    box-shadow: 0 8px 26px rgba(225, 61, 73, 0.5);
+}
+
+.paper-icon-button-light:hover:not(:disabled) {
+    color: var(--au-accent-2);
+}
+
+/* --------------------------------------------------------------------------
+   9. EPISODE / TRACK LISTS
+   -------------------------------------------------------------------------- */
+.listItem {
+    border-radius: var(--au-radius);
+    margin: 2px 0;
+    transition: background var(--au-fast) var(--au-ease);
+}
+
+.listItem:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.listItemImage {
+    border-radius: 6px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.listItemBodyText {
+    color: var(--au-text);
+}
+
+.listItemBodyText-secondary,
+.secondaryText {
+    color: var(--au-text-dim) !important;
+}
+
+.listItemMediaInfo {
+    color: var(--au-text-faint);
+}
+
+/* --------------------------------------------------------------------------
+   10. PLAYER OSD — minimal, cinematic
+   -------------------------------------------------------------------------- */
+.videoOsdBottom {
+    background: linear-gradient(0deg,
+            rgba(4, 4, 6, 0.94) 0%,
+            rgba(4, 4, 6, 0.5) 62%,
+            transparent 100%) !important;
+    backdrop-filter: blur(4px);
+}
+
+.osdTitle {
+    font-weight: 700;
+}
+
+.osdControls .buttons .paper-icon-button-light {
+    transition: transform var(--au-fast) var(--au-ease),
+        color var(--au-fast) var(--au-ease);
+}
+
+.osdControls .buttons .paper-icon-button-light:hover {
+    color: var(--au-accent-2);
+    transform: scale(1.18);
+}
+
+/* Timeline */
+.emby-slider .mdl-slider-background-lower,
+.mdl-slider-background-lower {
+    background-color: var(--au-accent) !important;
+}
+
+.mdl-slider-background-upper {
+    background: rgba(255, 255, 255, 0.25) !important;
+}
+
+.sliderThumb,
+.mdl-slider::-webkit-slider-thumb {
+    background: var(--au-accent) !important;
+    box-shadow: 0 0 10px rgba(225, 61, 73, 0.7);
+}
+
+.sliderBubble {
+    background: var(--au-surface-2);
+    border-radius: 6px;
+    color: var(--au-text);
+    font-weight: 600;
+    box-shadow: var(--au-shadow);
+}
+
+/* Chapter/trickplay card */
+.chapterThumbContainer {
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: var(--au-shadow);
+}
+
+/* Pause overlay dim */
+.videoPlayerContainer {
+    background: #000;
+}
+
+/* --------------------------------------------------------------------------
+   11. LOGIN — full-bleed hero
+   -------------------------------------------------------------------------- */
+#loginPage {
+    background: radial-gradient(110% 90% at 50% 0%,
+            #191b22 0%, var(--au-bg) 70%);
+}
+
+#loginPage .padded-left.padded-right.padded-bottom-page {
+    max-width: 430px;
+    margin: 9vh auto 0;
+    background: rgba(20, 21, 26, 0.82);
+    backdrop-filter: blur(22px);
+    border: 1px solid var(--au-line);
+    border-radius: var(--au-radius-lg);
+    padding: 2.4em 2.6em 2.8em;
+    box-shadow: var(--au-shadow-lift);
+}
+
+#loginPage h1 {
+    font-size: 1.7em;
+    margin-bottom: 0.8em;
+}
+
+#loginPage .emby-input {
+    font-size: 1.05em;
+    padding: 0.9em 1.05em;
+}
+
+#loginPage .block.emby-button.raised.button-submit {
+    padding: 0.95em;
+    font-size: 1.05em;
+    border-radius: var(--au-radius);
+}
+
+/* Hide Quick Connect & user tiles for a clean, private login */
+.btnQuickConnect,
+#divUsers .card {
+    display: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   12. FORMS, DIALOGS, MENUS, DASHBOARD
+   -------------------------------------------------------------------------- */
+.emby-input,
+.emby-textarea,
+.emby-select {
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid var(--au-line);
+    border-radius: var(--au-radius);
+    color: var(--au-text);
+    transition: border-color var(--au-fast) var(--au-ease),
+        background var(--au-fast) var(--au-ease);
+}
+
+.emby-input:focus,
+.emby-textarea:focus,
+.emby-select:focus {
+    border-color: var(--au-accent);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.inputLabel,
+.selectLabel,
+.checkboxListLabel,
+.fieldDescription {
+    color: var(--au-text-dim);
+}
+
+.emby-checkbox:checked + span + span + .checkboxOutline,
+.mdl-switch.is-checked .mdl-switch__track {
+    background: var(--au-accent) !important;
+    border-color: var(--au-accent) !important;
+}
+
+.mdl-switch__track {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.dialog,
+.formDialog {
+    background: var(--au-bg-2) !important;
+    border: 1px solid var(--au-line);
+    border-radius: var(--au-radius-lg);
+    box-shadow: var(--au-shadow-lift);
+}
+
+.formDialogHeader {
+    background: transparent !important;
+    border-bottom: 1px solid var(--au-line);
+}
+
+.formDialogFooter {
+    background: transparent !important;
+    border-top: 1px solid var(--au-line);
+}
+
+.actionSheet {
+    background: rgba(24, 26, 31, 0.96) !important;
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--au-line);
+    border-radius: var(--au-radius-lg);
+    box-shadow: var(--au-shadow-lift);
+}
+
+.actionSheetMenuItem:hover {
+    background: rgba(255, 255, 255, 0.07) !important;
+}
+
+.toast {
+    background: var(--au-surface-2);
+    color: var(--au-text);
+    border-radius: var(--au-radius);
+    box-shadow: var(--au-shadow);
+}
+
+/* Dashboard cards & tables */
+.paperList,
+.visualCardBox {
+    background: var(--au-surface);
+    border: 1px solid var(--au-line);
+    border-radius: var(--au-radius-lg);
+    box-shadow: none;
+}
+
+.detailTable thead {
+    color: var(--au-text-dim);
+}
+
+progress::-moz-progress-bar,
+progress::-webkit-progress-value {
+    background: var(--au-accent) !important;
+}
+
+/* --------------------------------------------------------------------------
+   13. SEARCH
+   -------------------------------------------------------------------------- */
+.searchFields .emby-input {
+    font-size: 1.35em;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid var(--au-line);
+    border-radius: 0;
+}
+
+.searchFields .emby-input:focus {
+    border-bottom-color: var(--au-accent);
+}
+
+.searchSuggestionsList .emby-linkbutton {
+    color: var(--au-text-dim);
+}
+
+/* --------------------------------------------------------------------------
+   14. SCROLLBARS & MISC POLISH
+   -------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #2e3138;
+    border-radius: 999px;
+    border: 2px solid var(--au-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3c4049;
+}
+
+::selection {
+    background: rgba(225, 61, 73, 0.45);
+}
+
+/* Gentle page transitions */
+.mainAnimatedPage {
+    animation: au-pagein var(--au-slow) var(--au-ease);
+}
+
+@keyframes au-pagein {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Respect users who opt out of motion */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}

@@ -1,0 +1,19 @@
+/* AURORA variant: Emerald — deep green accent.
+   Install: import aurora.css FIRST, then this file. */
+:root {
+    --au-accent: #21b573;
+    --au-accent-2: #3dd68f;
+    --au-on-accent: #06140d;
+    --au-focus: 0 0 0 3px var(--au-accent), 0 0 24px rgba(33, 181, 115, 0.55);
+}
+
+.raised.button-submit,
+.btnPlay.raised,
+.btnResume.raised,
+.mainDetailButtons .btnPlaystate.raised {
+    box-shadow: 0 6px 20px rgba(33, 181, 115, 0.35);
+}
+
+::selection {
+    background: rgba(33, 181, 115, 0.45);
+}

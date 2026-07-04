@@ -1,0 +1,20 @@
+/* AURORA variant: Plex Gold — the classic warm gold on charcoal.
+   Install: import aurora.css FIRST, then this file (or paste both,
+   this one second). */
+:root {
+    --au-accent: #e5a00d;
+    --au-accent-2: #f4b326;
+    --au-on-accent: #1a1a1a;
+    --au-focus: 0 0 0 3px var(--au-accent), 0 0 24px rgba(229, 160, 13, 0.55);
+}
+
+.raised.button-submit,
+.btnPlay.raised,
+.btnResume.raised,
+.mainDetailButtons .btnPlaystate.raised {
+    box-shadow: 0 6px 20px rgba(229, 160, 13, 0.35);
+}
+
+::selection {
+    background: rgba(229, 160, 13, 0.45);
+}

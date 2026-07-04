@@ -1,0 +1,85 @@
+# Aurora Home Rows — your home screen, declared.
+# Each entry becomes a self-updating collection visible in EVERY Jellyfin
+# client. Edit freely; the engine creates/updates/prunes on each sync.
+#
+# Rule fields (all optional unless noted):
+#   types: Movie | Series | Movie,Series          (default Movie)
+#   sort:  DateCreated | PremiereDate | CommunityRating | Random |
+#          PlayCount | SortName | ProductionYear
+#   order: Descending | Ascending                 (default Descending)
+#   limit: max items                              (default 25)
+#   genres: [Action, Thriller]
+#   unplayed: true          # only things not watched yet
+#   min_rating: 7.5         # community rating floor
+#   released_within_days: 90
+#   added_within_days: 14
+#   decade: 1990            # or years: [2001, 2002]
+#   max_runtime_minutes: 100
+#   tags: [halloween]
+#   parental_ratings: [G, PG]
+
+rows:
+  Recently Added:
+    types: Movie,Series
+    sort: DateCreated
+    added_within_days: 30
+    limit: 30
+
+  New Releases:
+    types: Movie
+    sort: PremiereDate
+    released_within_days: 120
+    limit: 25
+
+  Top Rated · Action:
+    types: Movie
+    genres: [Action]
+    sort: CommunityRating
+    min_rating: 7
+    limit: 20
+
+  Top Rated · Sci-Fi:
+    types: Movie
+    genres: [Science Fiction]
+    sort: CommunityRating
+    min_rating: 7
+    limit: 20
+
+  Comedy Night:
+    types: Movie
+    genres: [Comedy]
+    sort: Random
+    unplayed: true
+    limit: 20
+
+  Hidden Gems:
+    types: Movie
+    sort: Random
+    unplayed: true
+    min_rating: 7.5
+    limit: 20
+
+  90s Rewind:
+    types: Movie
+    decade: 1990
+    sort: CommunityRating
+    limit: 20
+
+  Short & Sweet:
+    types: Movie
+    max_runtime_minutes: 100
+    sort: Random
+    unplayed: true
+    limit: 20
+
+  Binge-Worthy Series:
+    types: Series
+    sort: CommunityRating
+    min_rating: 8
+    limit: 20
+
+  Family Movie Night:
+    types: Movie
+    parental_ratings: [G, PG]
+    sort: Random
+    limit: 20

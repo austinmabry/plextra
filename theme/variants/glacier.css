@@ -1,0 +1,19 @@
+/* AURORA variant: Glacier — cool ice-blue accent.
+   Install: import aurora.css FIRST, then this file. */
+:root {
+    --au-accent: #3fa9f5;
+    --au-accent-2: #6cc4ff;
+    --au-on-accent: #06121c;
+    --au-focus: 0 0 0 3px var(--au-accent), 0 0 24px rgba(63, 169, 245, 0.55);
+}
+
+.raised.button-submit,
+.btnPlay.raised,
+.btnResume.raised,
+.mainDetailButtons .btnPlaystate.raised {
+    box-shadow: 0 6px 20px rgba(63, 169, 245, 0.35);
+}
+
+::selection {
+    background: rgba(63, 169, 245, 0.45);
+}

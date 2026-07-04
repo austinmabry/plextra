@@ -1,0 +1,104 @@
+# Plextra — encrypted, GPU-accelerated, self-hosted media stack
+#
+# Start with:   ./scripts/start.sh     (unlocks the encrypted vault, then brings this up)
+# Stop with:    ./scripts/stop.sh      (brings this down, then re-locks the vault)
+#
+# Do NOT `docker compose up` before the vault is unlocked — the containers
+# would see empty mount points and create libraries in the wrong place.
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: plextra-jellyfin
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    group_add:
+      - "${RENDER_GID:-109}" # host 'render' group, needed for /dev/dri access
+    environment:
+      - TZ=${TZ:-UTC}
+      - JELLYFIN_PublishedServerUrl=https://${JELLYFIN_HOST:-media.local}
+      # NVIDIA hardware transcoding (requires nvidia-container-toolkit on the host)
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    volumes:
+      # Everything Jellyfin writes (metadata, watch state, DB) lives INSIDE the
+      # encrypted vault, so it is protected at rest along with the media.
+      - ${MEDIA_MOUNT}/appdata/jellyfin/config:/config
+      - ${MEDIA_MOUNT}/appdata/jellyfin/cache:/cache
+      - ${MEDIA_MOUNT}/media/movies:/media/movies:ro
+      - ${MEDIA_MOUNT}/media/tv:/media/tv:ro
+      - ${MEDIA_MOUNT}/media/music:/media/music:ro
+      # Custom Plex-grade theme, served from the web root and pulled in via
+      # the Custom CSS branding setting (seeded by scripts/setup.sh).
+      - ./jellyfin/theme/theme.css:/jellyfin/jellyfin-web/theme.css:ro
+      # Transcode scratch on fast local disk (tmpfs-like churn; not secret
+      # long-term data, wiped on container restart).
+      - jellyfin-transcodes:/config/transcodes
+    devices:
+      - /dev/dri:/dev/dri # falls back to VAAPI-capable path; harmless with NVENC
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - plextra
+    expose:
+      - "8096"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    container_name: plextra-books
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      - AUDIOBOOKSHELF_UID=${PUID:-1000}
+      - AUDIOBOOKSHELF_GID=${PGID:-1000}
+    volumes:
+      - ${MEDIA_MOUNT}/appdata/audiobookshelf/config:/config
+      - ${MEDIA_MOUNT}/appdata/audiobookshelf/metadata:/metadata
+      - ${MEDIA_MOUNT}/media/audiobooks:/audiobooks:ro
+      - ${MEDIA_MOUNT}/media/ebooks:/ebooks:ro
+    networks:
+      - plextra
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: plextra-caddy
+    restart: unless-stopped
+    environment:
+      - JELLYFIN_HOST=${JELLYFIN_HOST:-media.local}
+      - BOOKS_HOST=${BOOKS_HOST:-books.local}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    volumes:
+      - ${CADDYFILE:-./caddy/Caddyfile.lan}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    networks:
+      - plextra
+    depends_on:
+      - jellyfin
+      - audiobookshelf
+
+networks:
+  plextra:
+    driver: bridge
+
+volumes:
+  jellyfin-transcodes:
+  caddy-data:
+  caddy-config:

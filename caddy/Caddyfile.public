@@ -1,0 +1,38 @@
+# Public mode — real domains with automatic Let's Encrypt certificates.
+# Requires: JELLYFIN_HOST/BOOKS_HOST pointing at your public IP, ports 80/443
+# forwarded, and ACME_EMAIL set in .env.
+#
+# The server stays single-user/no-sharing: nothing is exposed beyond the two
+# apps, headers are hardened, and you should still read docs/SECURITY.md
+# before opening ports.
+
+{
+	email {$ACME_EMAIL}
+}
+
+(hardened) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		-Server
+		-X-Powered-By
+	}
+}
+
+{$JELLYFIN_HOST} {
+	import hardened
+	reverse_proxy jellyfin:8096 {
+		flush_interval -1
+	}
+}
+
+{$BOOKS_HOST} {
+	import hardened
+	reverse_proxy audiobookshelf:80 {
+		flush_interval -1
+	}
+}

@@ -1,0 +1,395 @@
+/* ==========================================================================
+   Plextra — a Plex-caliber skin for Jellyfin
+   Loaded via Dashboard > General > Custom CSS (seeded automatically).
+   Palette: deep charcoal surfaces, warm gold accent, soft depth shadows.
+   ========================================================================== */
+
+:root {
+    --px-bg: #191a1c;
+    --px-bg-raised: #232527;
+    --px-bg-overlay: #2c2e31;
+    --px-accent: #e5a00d;
+    --px-accent-hover: #f4b326;
+    --px-accent-text: #1a1a1a;
+    --px-text: #eff0f2;
+    --px-text-dim: #9a9da2;
+    --px-radius: 10px;
+    --px-radius-sm: 6px;
+    --px-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    --px-shadow-lift: 0 12px 32px rgba(0, 0, 0, 0.6);
+    --px-transition: 180ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* --- Global surfaces ---------------------------------------------------- */
+html,
+.backgroundContainer,
+.backdropContainer {
+    background-color: var(--px-bg) !important;
+    color: var(--px-text);
+}
+
+.skinBody {
+    font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont,
+        Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Soft gradient wash behind home rows, like Plex's ambient background */
+.backgroundContainer.withBackdrop {
+    background: linear-gradient(160deg,
+            rgba(25, 26, 28, 0.92) 0%,
+            rgba(25, 26, 28, 0.98) 55%,
+            #191a1c 100%) !important;
+}
+
+/* --- Header / nav ------------------------------------------------------- */
+.skinHeader,
+.skinHeader.semiTransparent {
+    background: linear-gradient(180deg,
+            rgba(20, 21, 23, 0.95) 0%,
+            rgba(20, 21, 23, 0.75) 70%,
+            transparent 100%) !important;
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    border: none;
+}
+
+.skinHeader.headerTop {
+    padding: 0.35em 0;
+}
+
+.headerTabs .emby-tab-button {
+    color: var(--px-text-dim);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: color var(--px-transition);
+}
+
+.headerTabs .emby-tab-button.emby-tab-button-active {
+    color: var(--px-text);
+}
+
+.headerTabs .emby-tab-button.emby-tab-button-active .emby-button-foreground {
+    border-bottom: 2px solid var(--px-accent);
+    padding-bottom: 4px;
+}
+
+/* Drawer */
+.mainDrawer {
+    background: rgba(28, 29, 31, 0.98) !important;
+    backdrop-filter: blur(20px);
+}
+
+.navMenuOption:hover {
+    background: rgba(229, 160, 13, 0.12) !important;
+}
+
+.navMenuOption-selected {
+    background: rgba(229, 160, 13, 0.18) !important;
+    color: var(--px-accent) !important;
+}
+
+.navMenuOption-selected .navMenuOptionIcon {
+    color: var(--px-accent) !important;
+}
+
+/* --- Poster cards: rounded, lifted, zoom-on-hover ------------------------ */
+.cardBox {
+    border-radius: var(--px-radius);
+    overflow: hidden;
+    transition: transform var(--px-transition), box-shadow var(--px-transition);
+    background: transparent;
+}
+
+.card:hover .cardBox:not(.visualCardBox) {
+    transform: translateY(-4px) scale(1.03);
+    box-shadow: var(--px-shadow-lift);
+    z-index: 2;
+}
+
+.cardImageContainer,
+.cardPadder,
+.cardContent {
+    border-radius: var(--px-radius);
+    background-color: var(--px-bg-raised);
+}
+
+.cardOverlayContainer {
+    border-radius: var(--px-radius);
+    background: linear-gradient(0deg,
+            rgba(0, 0, 0, 0.75) 0%,
+            rgba(0, 0, 0, 0.15) 45%,
+            transparent 100%);
+    opacity: 0;
+    transition: opacity var(--px-transition);
+}
+
+.card:hover .cardOverlayContainer {
+    opacity: 1;
+}
+
+.cardOverlayButton,
+.cardOverlayButton-hover {
+    color: #fff;
+}
+
+.cardOverlayFab-primary {
+    background: var(--px-accent) !important;
+    color: var(--px-accent-text) !important;
+    transition: transform var(--px-transition), background var(--px-transition);
+}
+
+.cardOverlayFab-primary:hover {
+    background: var(--px-accent-hover) !important;
+    transform: scale(1.12);
+}
+
+.cardText {
+    color: var(--px-text);
+    font-weight: 500;
+}
+
+.cardText-secondary {
+    color: var(--px-text-dim);
+}
+
+/* Progress bar on continue-watching cards */
+.itemProgressBarForeground {
+    background: var(--px-accent) !important;
+    border-radius: 2px;
+}
+
+.itemProgressBar {
+    background: rgba(255, 255, 255, 0.18) !important;
+    height: 4px !important;
+    border-radius: 2px;
+}
+
+/* Unwatched count bubble */
+.countIndicator,
+.playedIndicator {
+    background: var(--px-accent) !important;
+    color: var(--px-accent-text) !important;
+    font-weight: 700;
+}
+
+/* --- Home rows ----------------------------------------------------------- */
+.sectionTitle,
+.sectionTitle-cards {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    font-size: 1.24em;
+}
+
+.emby-scrollbuttons-button {
+    background: rgba(35, 37, 39, 0.9);
+    border-radius: 50%;
+    transition: background var(--px-transition);
+}
+
+.emby-scrollbuttons-button:hover {
+    background: var(--px-accent);
+    color: var(--px-accent-text);
+}
+
+/* --- Detail pages --------------------------------------------------------- */
+.detailPagePrimaryContainer {
+    background: linear-gradient(180deg,
+            transparent 0%,
+            rgba(25, 26, 28, 0.6) 40%,
+            var(--px-bg) 100%) !important;
+    backdrop-filter: none;
+}
+
+.infoWrapper,
+.itemName.infoText,
+.parentName {
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+}
+
+.detailImageContainer .cardBox {
+    box-shadow: var(--px-shadow-lift);
+    border-radius: var(--px-radius);
+}
+
+/* Buttons */
+.raised,
+.emby-button.raised {
+    border-radius: var(--px-radius-sm);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: background var(--px-transition), transform var(--px-transition);
+}
+
+.button-flat:hover,
+.raised:hover {
+    transform: translateY(-1px);
+}
+
+.raised.button-submit,
+.btnPlay.raised,
+.mainDetailButtons .btnPlaystate.raised,
+.raised.btnResume {
+    background: var(--px-accent) !important;
+    color: var(--px-accent-text) !important;
+}
+
+.raised.button-submit:hover,
+.btnPlay.raised:hover {
+    background: var(--px-accent-hover) !important;
+}
+
+/* Genre / info chips */
+.mediaInfoItem,
+.mediaInfoText {
+    background: var(--px-bg-overlay);
+    border-radius: 999px;
+    padding: 0.2em 0.8em;
+    color: var(--px-text-dim);
+}
+
+/* --- Player OSD ----------------------------------------------------------- */
+.videoOsdBottom {
+    background: linear-gradient(0deg,
+            rgba(12, 12, 13, 0.92) 0%,
+            rgba(12, 12, 13, 0.55) 60%,
+            transparent 100%) !important;
+    backdrop-filter: blur(6px);
+}
+
+.osdControls .buttons .paper-icon-button-light {
+    transition: transform var(--px-transition), color var(--px-transition);
+}
+
+.osdControls .buttons .paper-icon-button-light:hover {
+    color: var(--px-accent);
+    transform: scale(1.15);
+}
+
+.mdl-slider-background-lower,
+.sliderBubble,
+.emby-slider .mdl-slider-background-lower {
+    background-color: var(--px-accent) !important;
+}
+
+.sliderThumb,
+.mdl-slider::-webkit-slider-thumb {
+    background: var(--px-accent) !important;
+}
+
+.sliderBubble {
+    border-radius: var(--px-radius-sm);
+    color: var(--px-accent-text);
+    font-weight: 600;
+}
+
+/* --- Login page ------------------------------------------------------------ */
+#loginPage .padded-left.padded-right.padded-bottom-page {
+    max-width: 420px;
+    margin: 8vh auto 0;
+    background: rgba(35, 37, 39, 0.85);
+    backdrop-filter: blur(18px);
+    border-radius: 14px;
+    padding: 2.2em 2.4em 2.6em;
+    box-shadow: var(--px-shadow);
+}
+
+#loginPage h1 {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+#loginPage .emby-input {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: var(--px-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    padding: 0.85em 1em;
+    transition: border-color var(--px-transition);
+}
+
+#loginPage .emby-input:focus {
+    border-color: var(--px-accent);
+}
+
+#loginPage .block.emby-button.raised.button-submit {
+    background: var(--px-accent) !important;
+    color: var(--px-accent-text) !important;
+    border-radius: var(--px-radius-sm);
+    padding: 0.9em;
+    font-size: 1.02em;
+}
+
+/* No-sharing posture: hide Quick Connect & public-user tiles on login */
+.btnQuickConnect,
+#divUsers .card {
+    display: none !important;
+}
+
+/* --- Forms, dialogs, dashboard --------------------------------------------- */
+.dialog,
+.formDialog {
+    background: var(--px-bg-raised) !important;
+    border-radius: 14px;
+    box-shadow: var(--px-shadow-lift);
+}
+
+.formDialogHeader {
+    background: transparent !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.emby-input,
+.emby-textarea,
+.emby-select {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--px-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--px-text);
+}
+
+.emby-input:focus,
+.emby-textarea:focus,
+.emby-select:focus {
+    border-color: var(--px-accent);
+}
+
+.emby-checkbox:checked+span+span+.checkboxOutline,
+.mdl-switch.is-checked .mdl-switch__track {
+    background: var(--px-accent) !important;
+    border-color: var(--px-accent) !important;
+}
+
+.paper-icon-button-light:hover:not(:disabled) {
+    color: var(--px-accent);
+}
+
+progress::-moz-progress-bar,
+progress::-webkit-progress-value {
+    background: var(--px-accent) !important;
+}
+
+/* --- Scrollbars ------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #3a3d40;
+    border-radius: 999px;
+    border: 2px solid var(--px-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #4a4d51;
+}
+
+/* --- Quiet the chrome: fade utility text ------------------------------------- */
+.listItemBodyText-secondary,
+.secondaryText {
+    color: var(--px-text-dim) !important;
+}

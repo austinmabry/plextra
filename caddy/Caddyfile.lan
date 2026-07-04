@@ -1,0 +1,40 @@
+# LAN / VPN mode — Caddy runs its own private CA and issues certs for the
+# .local hostnames. Nothing here ever talks to the public internet.
+# Trust the root CA once per device (see docs/SECURITY.md).
+
+{
+	local_certs
+	auto_https disable_redirects
+}
+
+(hardened) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		-Server
+		-X-Powered-By
+	}
+}
+
+https://{$JELLYFIN_HOST} {
+	import hardened
+	reverse_proxy jellyfin:8096 {
+		flush_interval -1
+	}
+}
+
+https://{$BOOKS_HOST} {
+	import hardened
+	reverse_proxy audiobookshelf:80 {
+		flush_interval -1
+	}
+}
+
+# Plain-HTTP helper on port 80: redirect to HTTPS
+http:// {
+	redir https://{host}{uri} permanent
+}

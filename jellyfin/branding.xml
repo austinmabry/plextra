@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Seeded on first run. The @import pulls in the Plextra theme, which is
+  volume-mounted into the web root by docker-compose.yml — so the theme file
+  can be edited in git without touching Jellyfin's database.
+-->
+<BrandingOptions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <LoginDisclaimer />
+  <CustomCss>@import url("theme.css");</CustomCss>
+  <SplashscreenEnabled>true</SplashscreenEnabled>
+</BrandingOptions>

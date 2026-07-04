@@ -74,9 +74,15 @@ button is hidden by the theme, the login page never lists users, and DLNA and
 all remote-share plugins stay uninstalled. Media access from outside the LAN
 happens only over your own mesh VPN.
 
+**Clients** — any Jellyfin/Audiobookshelf client works; the per-device
+recipes (iOS with mesh + trust profile + requests PWA, the bundled LG webOS
+app in `clients/webos/`, Android TV, Apple TV) are in
+[docs/CLIENTS.md](docs/CLIENTS.md). Running Unraid? The full walkthrough is
+[docs/UNRAID.md](docs/UNRAID.md).
+
 ## Requirements
 
-- Linux host with Docker + Compose v2
+- Linux host with Docker + Compose v2 (Unraid: see [docs/UNRAID.md](docs/UNRAID.md))
 - NVIDIA GPU with NVENC (GTX 10-series or newer recommended) + driver +
   [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 - `gocryptfs` (`sudo apt install gocryptfs`) — **only** if using at-rest encryption
@@ -168,11 +174,13 @@ Three supported modes, chosen via `CADDYFILE` in `.env`:
 docker-compose.yml        The stack: Jellyfin, Audiobookshelf, Jellyseerr,
                           quota-warden, headscale, tailscale, Caddy
 caddy/                    TLS configs (mesh / LAN internal-CA / public ACME)
+clients/webos/            Buildable Plextra app for LG TVs
 headscale/                Mesh VPN control-plane config template
 quota-warden/             MB-per-window request quota sidecar (+ quotas.yml)
+unraid/                   GPU compose override for Unraid
 jellyfin/encoding.xml     NVENC + tone-mapping transcode config (seeded once)
 jellyfin/branding.xml     Loads the theme (seeded once)
 jellyfin/theme/theme.css  The Plextra skin
-scripts/                  setup, vault, start/stop, GPU check, mesh-init/mesh-user
-docs/                     SECURITY.md, POST-INSTALL.md, MESH.md, REQUESTS.md
+scripts/                  setup, vault, start/stop, GPU check, mesh + iOS trust
+docs/                     SECURITY, POST-INSTALL, MESH, REQUESTS, CLIENTS, UNRAID
 ```

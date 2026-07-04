@@ -1,0 +1,15 @@
+# Unraid GPU override — copy this file NEXT TO docker-compose.yml:
+#
+#     cp unraid/docker-compose.override.yml .
+#
+# Unraid's Nvidia Driver plugin exposes the GPU through the legacy
+# `runtime: nvidia` interface rather than compose device reservations, and
+# most Unraid boxes have no /dev/dri (that's for Intel/AMD iGPUs), which
+# would stop the container from starting. This override adjusts both.
+# Docker Compose automatically merges docker-compose.override.yml.
+
+services:
+  jellyfin:
+    runtime: nvidia
+    deploy: !reset null
+    devices: !reset []

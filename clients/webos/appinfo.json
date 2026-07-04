@@ -1,0 +1,14 @@
+{
+  "id": "com.plextra.tv",
+  "version": "1.0.0",
+  "vendor": "Plextra",
+  "type": "web",
+  "main": "index.html",
+  "title": "Plextra",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#191a1c",
+  "iconColor": "#e5a00d",
+  "resolution": "1920x1080",
+  "disallowScrollingInMainFrame": false
+}

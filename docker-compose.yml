@@ -23,8 +23,8 @@ services:
     volumes:
       # Everything Jellyfin writes (metadata, watch state, DB) lives INSIDE the
       # encrypted vault, so it is protected at rest along with the media.
-      - ${MEDIA_MOUNT}/appdata/jellyfin/config:/config
-      - ${MEDIA_MOUNT}/appdata/jellyfin/cache:/cache
+      - ${APPDATA_MOUNT:-${MEDIA_MOUNT}/appdata}/jellyfin/config:/config
+      - ${APPDATA_MOUNT:-${MEDIA_MOUNT}/appdata}/jellyfin/cache:/cache
       - ${MEDIA_MOUNT}/media/movies:/media/movies:ro
       - ${MEDIA_MOUNT}/media/tv:/media/tv:ro
       - ${MEDIA_MOUNT}/media/music:/media/music:ro
@@ -47,6 +47,11 @@ services:
       - plextra
     expose:
       - "8096"
+    ports:
+      # Plain-HTTP on the LAN for TV apps (LG/webOS, some smart TVs) that
+      # can't trust a private CA. LAN-only convenience — remote access still
+      # goes through TLS/the mesh. Delete these two lines to disable.
+      - "8096:8096"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8096/health"]
       interval: 30s
@@ -63,8 +68,8 @@ services:
       - AUDIOBOOKSHELF_UID=${PUID:-1000}
       - AUDIOBOOKSHELF_GID=${PGID:-1000}
     volumes:
-      - ${MEDIA_MOUNT}/appdata/audiobookshelf/config:/config
-      - ${MEDIA_MOUNT}/appdata/audiobookshelf/metadata:/metadata
+      - ${APPDATA_MOUNT:-${MEDIA_MOUNT}/appdata}/audiobookshelf/config:/config
+      - ${APPDATA_MOUNT:-${MEDIA_MOUNT}/appdata}/audiobookshelf/metadata:/metadata
       - ${MEDIA_MOUNT}/media/audiobooks:/audiobooks:ro
       - ${MEDIA_MOUNT}/media/ebooks:/ebooks:ro
     networks:
@@ -86,7 +91,7 @@ services:
       - TZ=${TZ:-UTC}
       - PORT=5055
     volumes:
-      - ${MEDIA_MOUNT}/appdata/jellyseerr:/app/config
+      - ${APPDATA_MOUNT:-${MEDIA_MOUNT}/appdata}/jellyseerr:/app/config
     networks:
       - plextra
     expose:

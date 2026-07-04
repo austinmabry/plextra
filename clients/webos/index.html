@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Plextra</title>
+<style>
+  /* Connect screen, styled to match the Plextra theme */
+  html, body {
+    margin: 0; height: 100%; background: #191a1c; color: #eff0f2;
+    font-family: "Segoe UI", Roboto, sans-serif; overflow: hidden;
+  }
+  .wrap {
+    height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .logo { display: flex; align-items: center; margin-bottom: 48px; }
+  .logo .tri {
+    width: 0; height: 0; border-left: 42px solid #e5a00d;
+    border-top: 26px solid transparent; border-bottom: 26px solid transparent;
+    margin-right: 22px;
+  }
+  .logo h1 { font-size: 56px; font-weight: 700; letter-spacing: 2px; margin: 0; }
+  .card {
+    background: #232527; border-radius: 14px; padding: 44px 52px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.6); width: 720px; text-align: center;
+  }
+  .card p { color: #9a9da2; font-size: 22px; margin: 0 0 26px; }
+  input {
+    width: 100%; box-sizing: border-box; font-size: 28px; padding: 18px 20px;
+    border-radius: 8px; border: 2px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06); color: #eff0f2; outline: none;
+  }
+  input:focus { border-color: #e5a00d; }
+  button {
+    margin-top: 28px; font-size: 26px; font-weight: 600; padding: 16px 64px;
+    border-radius: 8px; border: 3px solid transparent; cursor: pointer;
+    background: #e5a00d; color: #1a1a1a;
+  }
+  button:focus { border-color: #fff; }
+  .status { margin-top: 22px; font-size: 20px; min-height: 26px; color: #9a9da2; }
+  .status.err { color: #e06c60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo"><div class="tri"></div><h1>PLEXTRA</h1></div>
+  <div class="card">
+    <p>Enter your server address (e.g. <b>http://192.168.1.50:8096</b> on your
+       home network, or <b>https://media.yourdomain.com</b>)</p>
+    <input id="server" type="url" placeholder="http://server-ip:8096">
+    <br>
+    <button id="connect">Connect</button>
+    <div id="status" class="status"></div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var KEY = 'plextra-server';
+  var input = document.getElementById('server');
+  var btn = document.getElementById('connect');
+  var status = document.getElementById('status');
+
+  function say(msg, isErr) {
+    status.textContent = msg;
+    status.className = 'status' + (isErr ? ' err' : '');
+  }
+
+  function normalize(url) {
+    url = (url || '').trim().replace(/\/+$/, '');
+    if (url && !/^https?:\/\//i.test(url)) url = 'http://' + url;
+    return url;
+  }
+
+  // Launch Jellyfin's TV-ready web UI, served by the user's own server.
+  function launch(base) {
+    window.location.replace(base + '/web/index.html');
+  }
+
+  function connect(remember) {
+    var base = normalize(input.value);
+    if (!base) { say('Enter the server address.', true); input.focus(); return; }
+    say('Connecting…', false);
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', base + '/System/Info/Public', true);
+    xhr.timeout = 8000;
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        try { localStorage.setItem(KEY, base); } catch (e) { /* private mode */ }
+        launch(base);
+      } else {
+        say('Server answered HTTP ' + xhr.status + ' — is that the right address?', true);
+      }
+    };
+    xhr.onerror = function () {
+      say('Could not reach the server. On the home network use the http://IP:8096 address; https with a private certificate is not trusted by this TV.', true);
+    };
+    xhr.ontimeout = xhr.onerror;
+    xhr.send();
+  }
+
+  btn.addEventListener('click', function () { connect(true); });
+  input.addEventListener('keydown', function (e) {
+    if (e.keyCode === 13) connect(true); // OK/Enter
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.keyCode === 461) { // webOS BACK: clear saved server to re-enter setup
+      try { localStorage.removeItem(KEY); } catch (err) { /* noop */ }
+      say('Saved server cleared.', false);
+      input.focus();
+    }
+  });
+
+  // Auto-reconnect on launch if a server was saved.
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) { /* noop */ }
+  if (saved) {
+    input.value = saved;
+    connect(false);
+  } else {
+    input.focus();
+  }
+})();
+</script>
+</body>
+</html>

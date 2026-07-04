@@ -16,16 +16,21 @@ is_vault() {
 
 # Create the library layout and seed Jellyfin's NVENC/branding config.
 # Idempotent; never overwrites settings you've since changed in the dashboard.
+# APPDATA_MOUNT lets appdata live apart from media (e.g. Unraid: appdata on
+# SSD cache, media on the array); unset/empty keeps it inside MEDIA_MOUNT —
+# which in vault mode means it stays encrypted.
 ensure_layout() {
-    for d in media/movies media/tv media/music media/audiobooks media/ebooks \
-             appdata/jellyfin/config appdata/jellyfin/cache \
-             appdata/audiobookshelf/config appdata/audiobookshelf/metadata \
-             appdata/jellyseerr; do
-        mkdir -p "${MEDIA_MOUNT}/${d}"
+    APPDATA_MOUNT="${APPDATA_MOUNT:-${MEDIA_MOUNT}/appdata}"
+    for d in movies tv music audiobooks ebooks; do
+        mkdir -p "${MEDIA_MOUNT}/media/${d}"
     done
-    chown -R "${PUID}:${PGID}" "${MEDIA_MOUNT}/appdata" "${MEDIA_MOUNT}/media" 2>/dev/null || true
+    for d in jellyfin/config jellyfin/cache \
+             audiobookshelf/config audiobookshelf/metadata jellyseerr; do
+        mkdir -p "${APPDATA_MOUNT}/${d}"
+    done
+    chown -R "${PUID}:${PGID}" "${APPDATA_MOUNT}" "${MEDIA_MOUNT}/media" 2>/dev/null || true
 
-    local jf_conf="${MEDIA_MOUNT}/appdata/jellyfin/config/config"
+    local jf_conf="${APPDATA_MOUNT}/jellyfin/config/config"
     mkdir -p "${jf_conf}"
     [ -f "${jf_conf}/encoding.xml" ] || cp jellyfin/encoding.xml "${jf_conf}/encoding.xml"
     [ -f "${jf_conf}/branding.xml" ] || cp jellyfin/branding.xml "${jf_conf}/branding.xml"

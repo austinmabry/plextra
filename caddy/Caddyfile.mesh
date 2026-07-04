@@ -1,0 +1,55 @@
+# MESH mode (recommended) — the ONLY publicly-reachable endpoint is the
+# headscale coordination/relay server at MESH_HOST (real domain, Let's
+# Encrypt cert — Tailscale clients require a publicly valid cert to join).
+# The media apps keep private-CA certs and are reachable only from the LAN
+# or from devices joined to this server's mesh; scripts/mesh-init.sh
+# publishes mesh DNS records so the SAME hostnames work everywhere.
+#
+# Ports to open to the internet: 443/tcp (coordination + DERP relay),
+# 3478/udp (STUN), 41641/udp (direct WireGuard).
+
+{
+	email {$ACME_EMAIL}
+}
+
+(hardened) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		-Server
+		-X-Powered-By
+	}
+}
+
+# --- Public: mesh coordination + embedded DERP relay ---
+{$MESH_HOST} {
+	encode zstd gzip
+	reverse_proxy headscale:8080
+}
+
+# --- Private: media apps, internal CA, LAN + mesh only ---
+https://{$JELLYFIN_HOST} {
+	import hardened
+	tls internal
+	reverse_proxy jellyfin:8096 {
+		flush_interval -1
+	}
+}
+
+https://{$BOOKS_HOST} {
+	import hardened
+	tls internal
+	reverse_proxy audiobookshelf:80 {
+		flush_interval -1
+	}
+}
+
+https://{$REQUESTS_HOST} {
+	import hardened
+	tls internal
+	reverse_proxy jellyseerr:5055
+}

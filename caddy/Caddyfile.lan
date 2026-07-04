@@ -34,6 +34,11 @@ https://{$BOOKS_HOST} {
 	}
 }
 
+https://{$REQUESTS_HOST} {
+	import hardened
+	reverse_proxy jellyseerr:5055
+}
+
 # Plain-HTTP helper on port 80: redirect to HTTPS
 http:// {
 	redir https://{host}{uri} permanent

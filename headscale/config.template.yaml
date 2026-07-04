@@ -1,0 +1,63 @@
+# Headscale config TEMPLATE (fields track headscale 0.23+).
+# scripts/render-headscale-config.sh substitutes @MESH_HOST@ from .env and
+# writes headscale/config.yaml (gitignored) — edit THIS file, not the output.
+
+server_url: https://@MESH_HOST@
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 127.0.0.1:9090
+
+private_key_path: /var/lib/headscale/private.key
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+
+# Fully self-contained mesh: run our own DERP relay + STUN instead of
+# depending on Tailscale Inc's public relays. Clients fall back to this
+# relay (via https://MESH_HOST) whenever a direct WireGuard path fails.
+derp:
+  server:
+    enabled: true
+    region_id: 999
+    region_code: plextra
+    region_name: Plextra DERP
+    stun_listen_addr: 0.0.0.0:3478
+  urls: []
+  paths: []
+  auto_update_enabled: false
+  update_frequency: 24h
+
+disable_check_updates: true
+ephemeral_node_inactivity_timeout: 30m
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+
+log:
+  level: info
+  format: text
+
+dns:
+  magic_dns: true
+  base_domain: mesh.internal
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 9.9.9.9
+  search_domains: []
+  # scripts/mesh-init.sh writes A records here mapping JELLYFIN_HOST /
+  # BOOKS_HOST / REQUESTS_HOST to the server's mesh IP, so clients on the
+  # VPN resolve the exact same names they'd use on the LAN. Headscale
+  # hot-reloads this file.
+  extra_records_path: /var/lib/headscale/extra_records.json
+
+unix_socket_path: /var/run/headscale/headscale.sock
+
+logtail:
+  enabled: false
+
+randomize_client_port: false

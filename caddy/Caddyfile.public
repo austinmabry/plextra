@@ -36,3 +36,14 @@
 		flush_interval -1
 	}
 }
+
+{$REQUESTS_HOST} {
+	import hardened
+	reverse_proxy jellyseerr:5055
+}
+
+# Mesh coordination + DERP relay (needed so devices can join the VPN)
+{$MESH_HOST} {
+	encode zstd gzip
+	reverse_proxy headscale:8080
+}

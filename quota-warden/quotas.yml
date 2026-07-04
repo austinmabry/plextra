@@ -1,0 +1,23 @@
+# Data-volume request quotas, enforced by quota-warden on top of
+# Jellyseerr's native count quotas (movies / seasons per window — set those
+# per-user in Jellyseerr: Users -> edit user -> Quotas).
+#
+# Edit this file and restart the sidecar: docker compose restart quota-warden
+
+# Rolling window length in days.
+window_days: 7
+
+# Per-user data budget in MB per window. 0 = unlimited.
+# Applied to any user not listed under `users:` below.
+default_quota_mb: 51200 # 50 GB
+
+# Size assumptions for content that hasn't finished downloading yet
+# (actual on-disk sizes from Radarr/Sonarr are used once available).
+estimate_movie_mb: 8192 # ~8 GB per movie
+estimate_season_mb: 20480 # ~20 GB per season
+
+# Per-user overrides, keyed by Jellyfin username.
+users:
+  # alice: 102400   # 100 GB
+  # bob: 20480      # 20 GB
+  # carol: 0        # unlimited

@@ -19,7 +19,8 @@ is_vault() {
 ensure_layout() {
     for d in media/movies media/tv media/music media/audiobooks media/ebooks \
              appdata/jellyfin/config appdata/jellyfin/cache \
-             appdata/audiobookshelf/config appdata/audiobookshelf/metadata; do
+             appdata/audiobookshelf/config appdata/audiobookshelf/metadata \
+             appdata/jellyseerr; do
         mkdir -p "${MEDIA_MOUNT}/${d}"
     done
     chown -R "${PUID}:${PGID}" "${MEDIA_MOUNT}/appdata" "${MEDIA_MOUNT}/media" 2>/dev/null || true

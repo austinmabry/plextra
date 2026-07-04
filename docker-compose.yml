@@ -72,6 +72,92 @@ services:
     expose:
       - "80"
 
+  # ------------------------------------------------------------------
+  # Requests: search everything, request what's missing (per-season for
+  # TV), hand acquisition to your existing Radarr/Sonarr. Count quotas
+  # (movies/seasons per window) are set per-user inside Jellyseerr;
+  # quota-warden below adds MB-per-window budgets.
+  # ------------------------------------------------------------------
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: plextra-requests
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      - PORT=5055
+    volumes:
+      - ${MEDIA_MOUNT}/appdata/jellyseerr:/app/config
+    networks:
+      - plextra
+    expose:
+      - "5055"
+    depends_on:
+      - jellyfin
+
+  quota-warden:
+    build: ./quota-warden
+    container_name: plextra-quota-warden
+    restart: unless-stopped
+    environment:
+      - JELLYSEERR_URL=http://jellyseerr:5055
+      - JELLYSEERR_API_KEY=${JELLYSEERR_API_KEY:-}
+      - RADARR_URL=${RADARR_URL:-}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - SONARR_URL=${SONARR_URL:-}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - CHECK_INTERVAL_SECONDS=300
+    volumes:
+      - ./quota-warden/quotas.yml:/etc/quota-warden/quotas.yml:ro
+    networks:
+      - plextra
+    depends_on:
+      - jellyseerr
+
+  # ------------------------------------------------------------------
+  # Built-in mesh VPN: this instance runs its own private tailnet.
+  # headscale = self-hosted coordination server (+ embedded DERP relay
+  # and STUN, so nothing depends on Tailscale Inc). The tailscale
+  # sidecar joins THIS server to its own mesh, sharing Caddy's network
+  # namespace so the tailnet IP serves the same TLS vhosts as the LAN.
+  # Mesh state lives OUTSIDE the media vault on purpose: the VPN must
+  # come up after a reboot even while the vault is still locked.
+  # ------------------------------------------------------------------
+  headscale:
+    image: headscale/headscale:0.23
+    container_name: plextra-headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
+      - ./headscale/data:/var/lib/headscale
+    networks:
+      - plextra
+    expose:
+      - "8080"
+    ports:
+      - "3478:3478/udp" # STUN, for clients to discover direct paths
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: plextra-tailscale
+    restart: unless-stopped
+    hostname: plextra
+    network_mode: service:caddy
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_EXTRA_ARGS=--login-server=http://headscale:8080 --accept-dns=false
+      - TS_TAILSCALED_EXTRA_ARGS=--port=41641
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - headscale
+      - caddy
+
   caddy:
     image: caddy:2-alpine
     container_name: plextra-caddy
@@ -79,6 +165,8 @@ services:
     environment:
       - JELLYFIN_HOST=${JELLYFIN_HOST:-media.local}
       - BOOKS_HOST=${BOOKS_HOST:-books.local}
+      - REQUESTS_HOST=${REQUESTS_HOST:-requests.local}
+      - MESH_HOST=${MESH_HOST:-mesh.example.com}
       - ACME_EMAIL=${ACME_EMAIL:-}
     volumes:
       - ${CADDYFILE:-./caddy/Caddyfile.lan}:/etc/caddy/Caddyfile:ro
@@ -88,6 +176,7 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp" # HTTP/3
+      - "41641:41641/udp" # WireGuard for the tailscale sidecar (shared netns)
     networks:
       - plextra
     depends_on:
@@ -102,3 +191,4 @@ volumes:
   jellyfin-transcodes:
   caddy-data:
   caddy-config:
+  tailscale-state:

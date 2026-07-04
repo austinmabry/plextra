@@ -5,9 +5,11 @@ Ten minutes, once. Everything here assumes the stack is up (`./scripts/start.sh`
 ## 1. Jellyfin wizard — `https://media.local` (or your host)
 
 1. Pick your language.
-2. **Create your one account.** This is the only account the server will ever
-   have — pick a strong password (it protects playback access, not the vault;
-   the vault has its own password).
+2. **Create your admin account** — strong password (it protects playback
+   access, not the vault; the vault has its own password). Household members
+   get their own accounts later via Dashboard → Users → Add (needed for
+   per-person request quotas). Accounts are always admin-created; there is
+   no self-registration.
 3. Add libraries, pointing at the container paths:
    - Movies → `/media/movies`
    - Shows → `/media/tv`
@@ -52,7 +54,19 @@ Also run `./scripts/nvidia-check.sh` any time after driver updates.
    Android Play/F-Droid) and point it at `https://books.local` (or your
    Tailscale name).
 
-## 5. Client apps for the big screen
+## 5. Requests — `https://requests.local`
+
+Follow [REQUESTS.md](REQUESTS.md): sign in with the Jellyfin admin account,
+connect your Radarr/Sonarr, copy the API key into `.env`
+(`JELLYSEERR_API_KEY`), set per-user count quotas in the Jellyseerr UI and
+MB budgets in `quota-warden/quotas.yml`.
+
+## 6. Mesh VPN
+
+Follow [MESH.md](MESH.md): `./scripts/mesh-init.sh` once, then
+`./scripts/mesh-user.sh <person>` for each person's devices.
+
+## 7. Client apps for the big screen
 
 - **TV**: Jellyfin app on Android TV / Fire TV / Apple TV / webOS / Tizen.
   In app settings, enable "hardware decoding" — combined with the server's
@@ -61,10 +75,11 @@ Also run `./scripts/nvidia-check.sh` any time after driver updates.
   set maximum bitrate to Auto.
 - **Music-focused**: Finamp (uses the same Jellyfin server/login).
 
-## 6. Things to deliberately NOT do
+## 8. Things to deliberately NOT do
 
 - Don't install the DLNA plugin (unauthenticated by design).
-- Don't create additional users "just to try it" — the no-sharing posture is
-  one account everywhere.
-- Don't open ports 80/443 unless you've switched to `Caddyfile.public` and
-  read the public-mode notes in SECURITY.md.
+- Don't create accounts for people outside your household — accounts exist
+  for per-person quotas, not for public sharing.
+- Don't expose the media apps publicly unless you've deliberately switched
+  to `Caddyfile.public` and read the public-mode notes in SECURITY.md — in
+  mesh mode only the VPN join endpoint faces the internet.

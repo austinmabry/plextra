@@ -68,9 +68,22 @@ Settings → General → VPN & Device Management; Android: Settings → Security
 Install certificate). Alternatively, Tailscale users can use `tailscale cert`
 hostnames and skip the private CA entirely.
 
+## Mesh VPN exposure (mesh mode)
+
+The only internet-facing surface is the headscale endpoint on `MESH_HOST`:
+443/tcp (coordination API + DERP relay), 3478/udp (STUN), 41641/udp
+(WireGuard). Joining requires a single-use pre-auth key you generate;
+there is no self-service signup. DERP relays only see WireGuard ciphertext.
+Mesh keys/state live in `headscale/data/` outside the media vault — they
+identify devices but contain no media or library data — so the VPN
+recovers on boot while the vault is still locked. Revoke a device any time:
+`docker compose exec headscale headscale nodes delete -i <id>`.
+
 ## No-sharing posture
 
-- Exactly one Jellyfin account (created in the wizard); never add others.
+- Invite-only accounts: every Jellyfin user is admin-created (household
+  members need accounts for per-person request quotas); no self-registration
+  exists.
 - Quick Connect: off (default) and its login button hidden by the theme.
 - Login page: user tiles hidden by the theme; no "forgot password" exposure
   beyond localhost.

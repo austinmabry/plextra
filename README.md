@@ -211,12 +211,38 @@ Creating a Release in the GitHub UI with a *new* tag works too, since that
 pushes the tag. Creating one from a tag that already exists does not trigger
 anything — re-run the Release workflow by hand from the Actions tab.
 
-Two one-time things after the first release:
+#### After the very first release: make the package pullable
 
-- The GHCR package starts **private**. Make it public at
-  `github.com/users/austinmabry/packages/container/plextra/settings` if you want
-  to pull it without logging in.
-- Link it to this repo on the same page so the package page shows the README.
+A published image is **private by default**, and a private package is invisible
+in every place you would look for it. It does not appear under Packages on the
+repository page, and `docker pull` fails as though it was never built:
+
+```
+Error response from daemon: denied
+```
+
+The workflow cannot change this — package visibility is an account setting, so
+it is a one-time manual step:
+
+1. Go to <https://github.com/users/austinmabry/packages/container/plextra/settings>
+2. **Danger Zone → Change visibility → Public**
+3. While you are there, **Connect repository** so the package page shows this README
+
+To keep it private instead, log in on each machine that pulls it, using a
+personal access token with the `read:packages` scope:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u austinmabry --password-stdin
+```
+
+To confirm an image really is public, ask the registry anonymously — this prints
+the manifest for a public package and `DENIED` for a private one:
+
+```bash
+TOKEN=$(curl -s "https://ghcr.io/token?service=ghcr.io&scope=repository:austinmabry/plextra:pull" | jq -r .token)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://ghcr.io/v2/austinmabry/plextra/manifests/latest | head
+```
 
 `CI` runs on every push and pull request: the test suite on Python 3.11 and
 3.12, plus a real image build that starts the container and checks the API, the
@@ -237,6 +263,12 @@ blacklisted ID.
 
 **Connection refused to Radarr/Sonarr.** `localhost` inside a container is the
 container. Use the service name on a shared Docker network, or the host's LAN IP.
+
+**`docker compose pull` says denied, or the release "did not build an image".**
+Check the Release workflow run first: if the `Build and publish` job is green,
+the image exists and the package is simply still private. See
+[Releasing](#releasing) for how to make it public. If that job was *skipped*
+rather than failed, the `Tests` job before it failed and blocked the publish.
 
 **Cron never fires.** Set `TZ`. Cron is evaluated in the container's timezone,
 which is UTC unless you say otherwise. An invalid expression is logged at

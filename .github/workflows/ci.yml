@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: pytest tests/ -q
+
+  image:
+    name: Build and smoke-test the image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: plextra:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # No bind mount here on purpose: the anonymous volume inherits the
+      # image's ownership. Bind-mounting a host directory owned by another uid
+      # is the one setup that needs `user:` in compose, and is documented.
+      - name: Start the container
+        run: docker run -d --name plextra -p 9898:9898 plextra:ci
+
+      - name: Wait for it to come up
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9898/api/health >/dev/null 2>&1; then
+              echo "up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Container never became healthy."
+          docker logs plextra
+          exit 1
+
+      - name: Check the API and GUI respond
+        run: |
+          set -euxo pipefail
+          curl -fsS http://127.0.0.1:9898/api/health | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:9898/ | grep -q Plextra
+          curl -fsS http://127.0.0.1:9898/static/app.js >/dev/null
+          curl -fsS http://127.0.0.1:9898/static/style.css >/dev/null
+          curl -fsS http://127.0.0.1:9898/favicon.svg >/dev/null
+
+      - name: Check it does not run as root
+        run: |
+          uid=$(docker exec plextra id -u)
+          echo "container uid: $uid"
+          [ "$uid" != "0" ]
+
+      - name: Check the config volume is writable
+        run: docker exec plextra test -w /config
+
+      - name: Check the HEALTHCHECK reports healthy
+        run: |
+          for _ in $(seq 1 20); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' plextra)
+            echo "health: $status"
+            [ "$status" = "healthy" ] && exit 0
+            [ "$status" = "unhealthy" ] && break
+            sleep 5
+          done
+          docker logs plextra
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs plextra || true

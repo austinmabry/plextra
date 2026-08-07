@@ -18,6 +18,13 @@ COPY plextra ./plextra
 
 RUN mkdir -p /config && chown -R plextra:plextra /config /app
 
+# Deliberately late: the release workflow sets this to the git tag so the app
+# reports the version it was published as, and putting it here keeps a version
+# bump from invalidating the cached dependency layer above. That matters most
+# for the emulated arm64 build.
+ARG VERSION=0.1.0
+ENV PLEXTRA_VERSION=${VERSION}
+
 VOLUME ["/config"]
 EXPOSE 9898
 USER plextra

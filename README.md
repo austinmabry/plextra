@@ -33,6 +33,10 @@ docker compose up -d
 
 Open <http://localhost:9898> and work through Settings top to bottom.
 
+The compose file pulls `ghcr.io/austinmabry/plextra:latest`. Until you cut your
+first release there is no published image yet — comment out the `image:` line
+and uncomment `build: .` to build from the checkout in the meantime.
+
 If Radarr and Sonarr already run in their own compose stack, put Plextra on the
 same network and address them by container name:
 
@@ -187,6 +191,37 @@ PLEXTRA_CONFIG_DIR=./config .venv/bin/python -m plextra
 The test suite covers the filter rules, config load/upgrade, Trakt's several
 response shapes, the sync engine, and the Radarr/Sonarr clients against a stub
 *arr server that checks the actual add payloads.
+
+### Releasing
+
+Pushing a tag builds and publishes a multi-arch image (`linux/amd64` and
+`linux/arm64`) to GitHub Container Registry:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+A tag of `v1.2.3` publishes `1.2.3`, `1.2`, `1` and `latest`. A pre-release tag
+like `v1.2.3-rc1` publishes only `1.2.3-rc1` and never moves `latest`. The
+running app reports the tag it was built from, because the workflow bakes it in
+as a build arg.
+
+Creating a Release in the GitHub UI with a *new* tag works too, since that
+pushes the tag. Creating one from a tag that already exists does not trigger
+anything — re-run the Release workflow by hand from the Actions tab.
+
+Two one-time things after the first release:
+
+- The GHCR package starts **private**. Make it public at
+  `github.com/users/austinmabry/packages/container/plextra/settings` if you want
+  to pull it without logging in.
+- Link it to this repo on the same page so the package page shows the README.
+
+`CI` runs on every push and pull request: the test suite on Python 3.11 and
+3.12, plus a real image build that starts the container and checks the API, the
+GUI, the healthcheck, that `/config` is writable, and that it is not running as
+root.
 
 ## Troubleshooting
 

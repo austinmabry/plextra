@@ -79,7 +79,16 @@ def source_items(monkeypatch):
 
 @pytest.fixture
 def radarr(monkeypatch):
-    state = {"library": set(), "exclusions": set(), "added": [], "fail": set(), "imdb": {}}
+    state = {
+        "library": set(),
+        "library_imdb": set(),
+        "exclusions": set(),
+        "added": [],
+        "fail": set(),
+        "imdb": {},
+        # TMDb IDs Radarr's metadata server cannot serve.
+        "unresolvable": set(),
+    }
 
     class FakeRadarr:
         def __init__(self, url, api_key):
@@ -91,8 +100,8 @@ def radarr(monkeypatch):
         def __exit__(self, *exc):
             return False
 
-        def library_tmdb_ids(self):
-            return set(state["library"])
+        def library_ids(self):
+            return set(state["library"]), set(state["library_imdb"])
 
         def exclusion_tmdb_ids(self):
             return set(state["exclusions"])
@@ -100,9 +109,20 @@ def radarr(monkeypatch):
         def resolve_tmdb_id(self, imdb_id):
             return state["imdb"].get(imdb_id)
 
+        def resolve_for_add(self, tmdb_id, imdb_id=""):
+            if tmdb_id in state["unresolvable"]:
+                return None
+            return {"title": "x", "titleSlug": "x", "tmdbId": tmdb_id}
+
+        @staticmethod
+        def unresolvable(tmdb_id, imdb_id=""):
+            return ArrError(f"Radarr has no metadata for TMDb {tmdb_id}")
+
         def add_movie(self, tmdb_id, **kwargs):
             if tmdb_id in state["fail"]:
                 raise ArrError("Radarr said no")
+            if tmdb_id in state["unresolvable"]:
+                raise self.unresolvable(tmdb_id)
             state["added"].append((tmdb_id, kwargs))
             return {"id": 1}
 
@@ -112,7 +132,15 @@ def radarr(monkeypatch):
 
 @pytest.fixture
 def sonarr(monkeypatch):
-    state = {"library": set(), "exclusions": set(), "added": [], "languages": True, "resolve": {}}
+    state = {
+        "library": set(),
+        "library_imdb": set(),
+        "exclusions": set(),
+        "added": [],
+        "languages": True,
+        "resolve": {},
+        "unresolvable": set(),
+    }
 
     class FakeSonarr:
         def __init__(self, url, api_key):
@@ -124,8 +152,17 @@ def sonarr(monkeypatch):
         def __exit__(self, *exc):
             return False
 
-        def library_tvdb_ids(self):
-            return set(state["library"])
+        def library_ids(self):
+            return set(state["library"]), set(state["library_imdb"])
+
+        def lookup_tvdb(self, tvdb_id):
+            if tvdb_id in state["unresolvable"]:
+                return None
+            return {"title": "x", "titleSlug": "x", "tvdbId": tvdb_id}
+
+        @staticmethod
+        def unresolvable(tvdb_id, imdb_id=""):
+            return ArrError(f"Sonarr has no metadata for TVDb {tvdb_id}")
 
         def exclusion_tvdb_ids(self):
             return set(state["exclusions"])
@@ -137,6 +174,9 @@ def sonarr(monkeypatch):
             return state["resolve"].get(imdb_id) or state["resolve"].get(tmdb_id)
 
         def add_series(self, tvdb_id, **kwargs):
+            # Mirror the real client, which resolves before it posts.
+            if tvdb_id in state["unresolvable"]:
+                raise self.unresolvable(tvdb_id)
             state["added"].append((tvdb_id, kwargs))
             return {"id": 1}
 
@@ -310,6 +350,78 @@ class TestSkipping:
         result = engine.run(add_list(store, name="Watchlist").id)
 
         assert result.added == 1
+
+    def test_skips_a_title_held_under_a_different_tmdb_id(
+        self, engine, store, database, source_items, radarr
+    ):
+        """The same film can sit in Radarr under another TMDb ID.
+
+        Matching on TMDb alone let these through, and the add then failed with
+        "path is already configured for an existing movie".
+        """
+        source_items["items"] = [movie(999, "Songs of War", ids={"tmdb": 999, "imdb": "tt11328608"})]
+        radarr["library_imdb"] = {"tt11328608"}
+
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.existing == 1
+        assert result.added == 0
+        assert radarr["added"] == []
+        item = database.run_items(result.run_id)[0]
+        assert item["action"] == "existing"
+        assert "different ID" in item["reason"]
+
+    def test_imdb_match_only_applies_when_the_item_has_one(
+        self, engine, store, source_items, radarr
+    ):
+        source_items["items"] = [movie(1, "No IMDb ID")]
+        radarr["library_imdb"] = {"tt11328608"}
+
+        assert engine.run(add_list(store, name="Watchlist").id).added == 1
+
+
+class TestUnresolvableTitles:
+    """Radarr answers a metadata miss with a 500, not a 404."""
+
+    def test_failure_is_recorded_with_a_useful_reason(
+        self, engine, store, database, source_items, radarr
+    ):
+        source_items["items"] = [movie(1, "Cancelled film"), movie(2, "Real film")]
+        radarr["unresolvable"] = {1}
+
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.status == "partial"
+        assert (result.added, result.failed) == (1, 1)
+        assert [tmdb for tmdb, _ in radarr["added"]] == [2]
+
+        reasons = {i["title"]: i["reason"] for i in database.run_items(result.run_id)}
+        assert "no metadata" in reasons["Cancelled film (2016)"]
+
+    def test_dry_run_predicts_the_failure(
+        self, engine, store, database, source_items, radarr
+    ):
+        """A dry run that promises an add the real run cannot make is worse
+        than useless, so it resolves each title too."""
+        source_items["items"] = [movie(1, "Cancelled film"), movie(2, "Real film")]
+        radarr["unresolvable"] = {1}
+
+        result = engine.run(add_list(store, name="Watchlist").id, dry_run=True)
+
+        assert (result.added, result.failed) == (1, 1)
+        assert radarr["added"] == []  # still writes nothing
+        actions = {i["title"]: i["action"] for i in database.run_items(result.run_id)}
+        assert actions["Real film (2016)"] == "dry_run"
+        assert actions["Cancelled film (2016)"] == "failed"
+
+    def test_shows_too(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(1, "Ghost show"), tvshow(2, "Real show")]
+        sonarr["unresolvable"] = {1}
+
+        result = engine.run(add_list(store, name="Shows", media_type="show").id)
+
+        assert (result.added, result.failed) == (1, 1)
+        assert [tvdb for tvdb, _ in sonarr["added"]] == [2]
 
 
 class TestLimitAndSort:

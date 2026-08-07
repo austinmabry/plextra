@@ -185,9 +185,7 @@ class SyncEngine:
         )
 
         with self._build_client(target, media) as arr:
-            library = (
-                arr.library_tmdb_ids() if media == "movie" else arr.library_tvdb_ids()
-            )
+            library, library_imdb = arr.library_ids()
             exclusions = (
                 arr.exclusion_tmdb_ids() if media == "movie" else arr.exclusion_tvdb_ids()
             )
@@ -206,7 +204,7 @@ class SyncEngine:
                     language_profile_id = config.sonarr.language_profile_id
 
             candidates = self._select(
-                job, provider, arr, items, library, exclusions, result
+                job, provider, arr, items, library, library_imdb, exclusions, result
             )
             result.candidates = len(candidates)
 
@@ -263,6 +261,7 @@ class SyncEngine:
         arr: Any,
         items: list[MediaItem],
         library: set[int],
+        library_imdb: set[str],
         exclusions: set[int],
         result: SyncResult,
     ) -> list[tuple[MediaItem, int]]:
@@ -307,6 +306,16 @@ class SyncEngine:
             if ident in library:
                 result.existing += 1
                 skipped.append((item.label, item.year, str(ident), "existing", "already in library"))
+                continue
+            if item.imdb_id and item.imdb_id in library_imdb:
+                # Same film, different TMDb ID. Catching it here turns what
+                # would be a late "path is already configured" failure into an
+                # accurate "you already have this".
+                result.existing += 1
+                skipped.append((
+                    item.label, item.year, item.imdb_id, "existing",
+                    "already in library, under a different ID",
+                ))
                 continue
             if ident in exclusions:
                 result.excluded += 1
@@ -371,12 +380,32 @@ class SyncEngine:
             label = item.label
 
             if result.dry_run:
-                result.added += 1
-                result.added_titles.append(label)
-                self.db.add_item(
-                    result.run_id, label, item.year, str(ident), "dry_run", "would be added"
-                )
-                log.info("[%s] Would add %s.", job.name, label)
+                # Check the title actually resolves, so a dry run cannot promise
+                # an add that the real run will fail on. Read-only either way.
+                try:
+                    resolved = (
+                        arr.resolve_for_add(ident, item.imdb_id or "")
+                        if media == "movie"
+                        else arr.lookup_tvdb(ident)
+                    )
+                except ArrError as exc:
+                    resolved = None
+                    log.debug("[%s] Dry-run lookup for %s failed: %s", job.name, label, exc)
+
+                if resolved:
+                    result.added += 1
+                    result.added_titles.append(label)
+                    self.db.add_item(
+                        result.run_id, label, item.year, str(ident), "dry_run", "would be added"
+                    )
+                    log.info("[%s] Would add %s.", job.name, label)
+                else:
+                    result.failed += 1
+                    reason = str(arr.unresolvable(ident, item.imdb_id or ""))
+                    self.db.add_item(
+                        result.run_id, label, item.year, str(ident), "failed", reason
+                    )
+                    log.error("[%s] Would fail on %s: %s", job.name, label, reason)
                 continue
 
             try:
@@ -389,6 +418,7 @@ class SyncEngine:
                         monitored=target.monitored,
                         search_on_add=search_on_add,
                         tags=tags,
+                        imdb_id=item.imdb_id or "",
                     )
                 else:
                     arr.add_series(

@@ -109,8 +109,10 @@ liked so you do not have to paste URLs.
 ![The list editor, showing source, selection, schedule and filter options](docs/screenshots/list-editor.png)
 
 Use **Dry run** first. It walks the whole pipeline and records exactly what it
-would add, without touching Radarr or Sonarr. History shows the per-title
-outcome, including why anything was filtered.
+would add, without writing anything to Radarr or Sonarr. It also resolves each
+candidate, so a title Radarr has no metadata for is reported as a failure rather
+than being promised and then failing on the real run. History shows the
+per-title outcome, including why anything was filtered or skipped.
 
 ## Providers
 
@@ -338,9 +340,21 @@ recorded outcome and reason — usually `already in library` or a filter.
 **"Trakt account is not authorised".** The source needs a connected account.
 Settings → Trakt → Connect account, then pick it in the list editor.
 
-**"Radarr could not resolve TMDb ID".** Radarr's own metadata lookup failed for
-that title, usually because TMDb and Trakt disagree about the ID. Skip it with a
-blacklisted ID.
+**"Radarr has no metadata for TMDb …".** The title exists on Trakt but not in
+Radarr's metadata server, which answers the miss with an HTTP 500 rather than a
+404. Radarr's own Add Movie search will not find it either, so there is nothing
+Plextra can do about it — the title genuinely cannot be added right now. It is
+normal for cancelled and unreleased films, fan edits, YouTube specials and TV
+specials that Trakt files as movies. Plextra tries an IMDb lookup as a second
+route before giving up, and records the rest in History. Add the TMDb ID to the
+list's blacklisted IDs to stop it being retried every sync.
+
+**"Path '…' is already configured for an existing movie".** You already have
+that film, under a *different* TMDb ID — merged or duplicated TMDb entries cause
+this. Plextra now matches the library on IMDb ID as well as TMDb ID and reports
+these as `already in library, under a different ID` before attempting an add, so
+this should not reach Radarr. If it still does, the existing Radarr entry has no
+IMDb ID recorded.
 
 **Connection refused to Radarr/Sonarr.** `localhost` inside a container is the
 container. Use the service name on a shared Docker network, or the host's LAN IP.

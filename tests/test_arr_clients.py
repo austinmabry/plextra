@@ -52,7 +52,11 @@ class StubArrHandler(BaseHTTPRequestHandler):
             "/api/v3/qualityprofile": (200, [{"id": 4, "name": "HD-1080p"}]),
             "/api/v3/rootfolder": (200, [{"id": 1, "path": "/movies", "freeSpace": 100}]),
             "/api/v3/tag": (200, [{"id": 7, "label": "trakt"}]),
-            "/api/v3/movie": (200, [{"tmdbId": 603, "title": "The Matrix"}]),
+            "/api/v3/movie": (200, [
+                {"tmdbId": 603, "title": "The Matrix", "imdbId": "tt0133093"},
+                # A library entry with no TMDb ID must not break the sweep.
+                {"title": "Mystery", "imdbId": "tt9999999"},
+            ]),
             "/api/v3/exclusions": (200, [{"tmdbId": 11, "movieTitle": "Nope"}]),
             "/api/v3/series": (200, [{"tvdbId": 121361, "title": "Game of Thrones"}]),
             "/api/v3/importlistexclusion": (200, [{"tvdbId": 22, "title": "Nope"}]),
@@ -62,10 +66,21 @@ class StubArrHandler(BaseHTTPRequestHandler):
         if path in routes:
             return self._send(*routes[path])
 
+        if path == "/api/v3/movie/lookup":
+            # Radarr's term search, used to turn an IMDb ID into a TMDb one.
+            term = query.get("term", [""])[0]
+            if term == "imdb:tt0133093":
+                return self._send(200, [{"tmdbId": 329865, "title": "Arrival"}])
+            return self._send(200, [])
+
         if path == "/api/v3/movie/lookup/tmdb":
             tmdb_id = int(query["tmdbId"][0])
             if tmdb_id == 404404:
                 return self._send(404, {"message": "Movie not found"})
+            if tmdb_id == 500500:
+                # What Radarr actually returns when its metadata server has no
+                # entry for the ID: a 500, not a 404.
+                return self._send(500, {"message": "Internal Server Error"})
             return self._send(200, {
                 "id": 0,
                 "title": "Arrival",
@@ -176,6 +191,12 @@ class TestRadarr:
     def test_library_ids(self, radarr):
         assert radarr.library_tmdb_ids() == {603}
 
+    def test_library_ids_returns_imdb_ids_too(self, radarr):
+        """Needed to spot a film already held under a different TMDb ID."""
+        tmdb_ids, imdb_ids = radarr.library_ids()
+        assert tmdb_ids == {603}
+        assert imdb_ids == {"tt0133093", "tt9999999"}
+
     def test_exclusion_ids(self, radarr):
         assert radarr.exclusion_tmdb_ids() == {11}
 
@@ -209,9 +230,25 @@ class TestRadarr:
         # as an update to a movie that does not exist.
         assert "id" not in payload
 
-    def test_unresolvable_id_raises(self, radarr):
-        with pytest.raises(ArrError, match="could not resolve"):
+    def test_unresolvable_id_explains_why(self, radarr):
+        """Radarr answers a metadata miss with a 500; say what that means."""
+        with pytest.raises(ArrError, match="has no metadata") as exc:
             radarr.add_movie(404404, quality_profile_id=4, root_folder="/movies")
+        assert "cancelled, unreleased" in str(exc.value)
+
+    def test_a_metadata_miss_is_not_retried_to_death(self, radarr, stub_url):
+        """A 500 here is deterministic, so three tries with backoff is six
+        wasted seconds per title."""
+        import time
+
+        start = time.monotonic()
+        assert radarr.lookup_tmdb(500500) is None
+        assert time.monotonic() - start < 4
+
+    def test_falls_back_to_an_imdb_lookup(self, radarr):
+        """The two lookups go through different paths in Radarr, so one can
+        work when the other does not."""
+        assert radarr.resolve_for_add(404404, "tt0133093") is not None
 
     def test_radarr_error_message_is_surfaced(self, radarr):
         with pytest.raises(ArrError, match="already been added"):

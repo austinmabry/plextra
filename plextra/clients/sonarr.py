@@ -9,6 +9,10 @@ from .arr import ArrClient, ArrError
 
 log = logging.getLogger(__name__)
 
+# See the note in radarr.py: a metadata miss comes back as a deterministic 500,
+# so retrying it three times only wastes time.
+_LOOKUP_ATTEMPTS = 2
+
 
 class SonarrClient(ArrClient):
     service = "Sonarr"
@@ -16,12 +20,24 @@ class SonarrClient(ArrClient):
     def series(self) -> list[dict[str, Any]]:
         return self.get_json("api/v3/series")
 
+    def library_ids(self) -> tuple[set[int], set[str]]:
+        """The TVDb *and* IMDb IDs of everything Sonarr already holds.
+
+        Matching on TVDb alone misses a series already present under a
+        different TVDb ID, which then fails late on a path collision.
+        """
+        tvdb_ids: set[int] = set()
+        imdb_ids: set[str] = set()
+        for show in self.series():
+            if show.get("tvdbId"):
+                tvdb_ids.add(int(show["tvdbId"]))
+            imdb_id = str(show.get("imdbId") or "").strip()
+            if imdb_id.startswith("tt"):
+                imdb_ids.add(imdb_id)
+        return tvdb_ids, imdb_ids
+
     def library_tvdb_ids(self) -> set[int]:
-        return {
-            int(show["tvdbId"])
-            for show in self.series()
-            if show.get("tvdbId")
-        }
+        return self.library_ids()[0]
 
     def exclusion_tvdb_ids(self) -> set[int]:
         for path in ("api/v3/importlistexclusion", "api/v3/exclusions"):
@@ -60,7 +76,16 @@ class SonarrClient(ArrClient):
             terms.append(f"tmdb:{tmdb_id}")
 
         for term in terms:
-            response = self.request("GET", "api/v3/series/lookup", params={"term": term})
+            try:
+                response = self.request(
+                    "GET",
+                    "api/v3/series/lookup",
+                    params={"term": term},
+                    max_attempts=_LOOKUP_ATTEMPTS,
+                )
+            except ArrError as exc:
+                log.debug("Sonarr lookup for %s failed: %s", term, exc)
+                continue
             if response.status_code != 200:
                 continue
             try:
@@ -74,10 +99,26 @@ class SonarrClient(ArrClient):
                     return int(entry["tvdbId"])
         return None
 
-    def lookup_tvdb(self, tvdb_id: int) -> dict[str, Any] | None:
-        response = self.request(
-            "GET", "api/v3/series/lookup", params={"term": f"tvdb:{tvdb_id}"}
+    @staticmethod
+    def unresolvable(tvdb_id: int, imdb_id: str = "") -> ArrError:
+        ident = f"TVDb {tvdb_id}" + (f" / {imdb_id}" if imdb_id else "")
+        return ArrError(
+            f"Sonarr has no metadata for {ident}. Its metadata server does not "
+            "know this series, so Sonarr's own Add Series search will not find "
+            "it either."
         )
+
+    def lookup_tvdb(self, tvdb_id: int) -> dict[str, Any] | None:
+        try:
+            response = self.request(
+                "GET",
+                "api/v3/series/lookup",
+                params={"term": f"tvdb:{tvdb_id}"},
+                max_attempts=_LOOKUP_ATTEMPTS,
+            )
+        except ArrError as exc:
+            log.debug("Sonarr lookup for TVDb %s failed: %s", tvdb_id, exc)
+            return None
         if response.status_code != 200:
             log.debug(
                 "Sonarr lookup for TVDb %s returned %s.", tvdb_id, response.status_code
@@ -116,7 +157,7 @@ class SonarrClient(ArrClient):
     ) -> dict[str, Any]:
         lookup = self.lookup_tvdb(tvdb_id)
         if not lookup:
-            raise ArrError(f"Sonarr could not resolve TVDb ID {tvdb_id}.")
+            raise self.unresolvable(tvdb_id)
 
         payload = dict(lookup)
         payload.update(

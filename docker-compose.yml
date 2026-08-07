@@ -1,0 +1,27 @@
+services:
+  plextra:
+    build: .
+    # Or, once you have published an image:
+    # image: ghcr.io/austinmabry/plextra:latest
+    container_name: plextra
+    restart: unless-stopped
+    ports:
+      - "9898:9898"
+    volumes:
+      - ./config:/config
+    environment:
+      - TZ=America/Chicago
+      - PLEXTRA_LOG_LEVEL=INFO
+      # Seeds the web password on first boot only. Set one, or set it in the GUI.
+      # - PLEXTRA_PASSWORD=change-me
+    # Match the uid/gid that owns ./config if it is not 1000:1000.
+    # user: "1000:1000"
+
+# If Radarr/Sonarr run in their own compose stack, put Plextra on the same
+# network and address them by container name (http://radarr:7878). Otherwise use
+# the host IP; "localhost" inside this container means the container itself.
+#
+# networks:
+#   default:
+#     name: media
+#     external: true

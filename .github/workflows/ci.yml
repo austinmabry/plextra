@@ -1,8 +1,12 @@
 name: CI
 
+# Runs on a push to any branch, not just main, so work in progress is verified
+# before it is merged or tagged. Same-repo pull requests are skipped below
+# because the push event already covered that commit; fork pull requests have
+# no push event here, so they still run.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
@@ -16,6 +20,9 @@ permissions:
 jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,6 +43,9 @@ jobs:
 
   image:
     name: Build and smoke-test the image
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

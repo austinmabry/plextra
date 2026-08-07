@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+# Bare `pytest` does not put the repo root on sys.path, while `python -m pytest`
+# does. Without this, the test modules cannot import the package unless it is
+# installed, so the two invocations disagree. Pin it down for both.
+pythonpath = ["."]
+testpaths = ["tests"]

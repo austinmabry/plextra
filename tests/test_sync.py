@@ -115,14 +115,14 @@ def radarr(monkeypatch):
             return {"title": "x", "titleSlug": "x", "tmdbId": tmdb_id}
 
         @staticmethod
-        def unresolvable(tmdb_id, imdb_id=""):
-            return ArrError(f"Radarr has no metadata for TMDb {tmdb_id}")
+        def unknown_id(tmdb_id, imdb_id=""):
+            return ArrError(f"Radarr does not recognise TMDb {tmdb_id}")
 
         def add_movie(self, tmdb_id, **kwargs):
             if tmdb_id in state["fail"]:
                 raise ArrError("Radarr said no")
             if tmdb_id in state["unresolvable"]:
-                raise self.unresolvable(tmdb_id)
+                raise self.unknown_id(tmdb_id)
             state["added"].append((tmdb_id, kwargs))
             return {"id": 1}
 
@@ -161,8 +161,8 @@ def sonarr(monkeypatch):
             return {"title": "x", "titleSlug": "x", "tvdbId": tvdb_id}
 
         @staticmethod
-        def unresolvable(tvdb_id, imdb_id=""):
-            return ArrError(f"Sonarr has no metadata for TVDb {tvdb_id}")
+        def unknown_id(tvdb_id, imdb_id=""):
+            return ArrError(f"Sonarr does not recognise TVDb {tvdb_id}")
 
         def exclusion_tvdb_ids(self):
             return set(state["exclusions"])
@@ -176,7 +176,7 @@ def sonarr(monkeypatch):
         def add_series(self, tvdb_id, **kwargs):
             # Mirror the real client, which resolves before it posts.
             if tvdb_id in state["unresolvable"]:
-                raise self.unresolvable(tvdb_id)
+                raise self.unknown_id(tvdb_id)
             state["added"].append((tvdb_id, kwargs))
             return {"id": 1}
 
@@ -381,7 +381,7 @@ class TestSkipping:
 
 
 class TestUnresolvableTitles:
-    """Radarr answers a metadata miss with a 500, not a 404."""
+    """Titles Radarr's metadata service genuinely does not recognise."""
 
     def test_failure_is_recorded_with_a_useful_reason(
         self, engine, store, database, source_items, radarr
@@ -396,7 +396,7 @@ class TestUnresolvableTitles:
         assert [tmdb for tmdb, _ in radarr["added"]] == [2]
 
         reasons = {i["title"]: i["reason"] for i in database.run_items(result.run_id)}
-        assert "no metadata" in reasons["Cancelled film (2016)"]
+        assert "does not recognise" in reasons["Cancelled film (2016)"]
 
     def test_dry_run_predicts_the_failure(
         self, engine, store, database, source_items, radarr

@@ -11,7 +11,7 @@ from typing import Any
 from . import filters as filter_rules
 from . import providers as provider_registry
 from . import settings
-from .clients import ArrError, RadarrClient, SonarrClient
+from .clients import ArrError, ArrMetadataError, RadarrClient, SonarrClient
 from .config import AppConfig, ConfigStore, ListJob, TraktAccount
 from .db import Database
 from .providers.base import MediaItem, Provider, ProviderError
@@ -382,17 +382,19 @@ class SyncEngine:
             if result.dry_run:
                 # Check the title actually resolves, so a dry run cannot promise
                 # an add that the real run will fail on. Read-only either way.
+                failure: Exception | None = None
                 try:
                     resolved = (
                         arr.resolve_for_add(ident, item.imdb_id or "")
                         if media == "movie"
                         else arr.lookup_tvdb(ident)
                     )
+                    if not resolved:
+                        failure = arr.unknown_id(ident, item.imdb_id or "")
                 except ArrError as exc:
-                    resolved = None
-                    log.debug("[%s] Dry-run lookup for %s failed: %s", job.name, label, exc)
+                    failure = exc
 
-                if resolved:
+                if failure is None:
                     result.added += 1
                     result.added_titles.append(label)
                     self.db.add_item(
@@ -401,11 +403,10 @@ class SyncEngine:
                     log.info("[%s] Would add %s.", job.name, label)
                 else:
                     result.failed += 1
-                    reason = str(arr.unresolvable(ident, item.imdb_id or ""))
                     self.db.add_item(
-                        result.run_id, label, item.year, str(ident), "failed", reason
+                        result.run_id, label, item.year, str(ident), "failed", str(failure)
                     )
-                    log.error("[%s] Would fail on %s: %s", job.name, label, reason)
+                    log.error("[%s] Would fail on %s: %s", job.name, label, failure)
                 continue
 
             try:
@@ -433,6 +434,17 @@ class SyncEngine:
                         tags=tags,
                         language_profile_id=language_profile_id,
                     )
+            except ArrMetadataError as exc:
+                # The metadata service failed, not the title. Say so, and make
+                # clear the next scheduled run will pick it up.
+                result.failed += 1
+                self.db.add_item(result.run_id, label, item.year, str(ident), "failed", str(exc))
+                log.error(
+                    "[%s] Could not add %s: %s The next sync will retry it.",
+                    job.name,
+                    label,
+                    exc,
+                )
             except ArrError as exc:
                 result.failed += 1
                 self.db.add_item(result.run_id, label, item.year, str(ident), "failed", str(exc))

@@ -16,6 +16,20 @@ class ArrError(Exception):
     """Any failure talking to Radarr or Sonarr."""
 
 
+class ArrMetadataError(ArrError):
+    """Radarr/Sonarr's own metadata service failed.
+
+    Distinct from a title being unknown. Radarr proxies metadata through
+    api.radarr.video, which answers a genuine miss with a clean 404; a 5xx means
+    that service, or the network to it, failed. Those are transient, so the
+    title is worth retrying rather than writing off.
+    """
+
+
+class ArrUnknownIdError(ArrError):
+    """Radarr/Sonarr's metadata service does not recognise the ID at all."""
+
+
 class ArrClient:
     """Common behaviour for Radarr and Sonarr.
 
@@ -66,6 +80,7 @@ class ArrClient:
         url = urljoin(self.base_url, path.lstrip("/"))
         max_attempts = self.retries if max_attempts is None else max_attempts
         last_error = ""
+        server_error = False
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -79,11 +94,19 @@ class ArrClient:
                 if response.status_code < 500:
                     return response
                 last_error = f"HTTP {response.status_code}"
+                server_error = True
                 log.warning("%s returned %s for %s.", self.service, response.status_code, path)
 
             if attempt < max_attempts:
                 time.sleep(2**attempt)
 
+        if server_error:
+            raise ArrMetadataError(
+                f"{self.service} returned {last_error} for {path} after "
+                f"{max_attempts} tries. That is {self.service}'s own metadata "
+                "service or the network to it failing, not a problem with the "
+                "title, and it is usually temporary."
+            )
         raise ArrError(f"{self.service} request to {path} failed: {last_error}")
 
     def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:

@@ -11,9 +11,16 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from plextra.clients import ArrError, RadarrClient, SonarrClient
+from plextra.clients import (
+    ArrError,
+    ArrMetadataError,
+    ArrUnknownIdError,
+    RadarrClient,
+    SonarrClient,
+)
 
 RECORDED: dict = {}
+REQUESTS: list[str] = []
 
 
 class StubArrHandler(BaseHTTPRequestHandler):
@@ -46,6 +53,7 @@ class StubArrHandler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         path = url.path
+        REQUESTS.append(path)
 
         routes = {
             "/api/v3/system/status": (200, {"version": "5.2.6.8376", "appName": "Radarr"}),
@@ -78,8 +86,8 @@ class StubArrHandler(BaseHTTPRequestHandler):
             if tmdb_id == 404404:
                 return self._send(404, {"message": "Movie not found"})
             if tmdb_id == 500500:
-                # What Radarr actually returns when its metadata server has no
-                # entry for the ID: a 500, not a 404.
+                # Radarr surfaces a failure of its own metadata service as a
+                # 500. A title it simply does not have gives the 404 above.
                 return self._send(500, {"message": "Internal Server Error"})
             return self._send(200, {
                 "id": 0,
@@ -230,20 +238,34 @@ class TestRadarr:
         # as an update to a movie that does not exist.
         assert "id" not in payload
 
-    def test_unresolvable_id_explains_why(self, radarr):
-        """Radarr answers a metadata miss with a 500; say what that means."""
-        with pytest.raises(ArrError, match="has no metadata") as exc:
+    def test_an_unknown_id_is_reported_as_unknown(self, radarr):
+        """Radarr's metadata service answers a genuine miss with a 404."""
+        with pytest.raises(ArrUnknownIdError, match="does not recognise") as exc:
             radarr.add_movie(404404, quality_profile_id=4, root_folder="/movies")
-        assert "cancelled, unreleased" in str(exc.value)
+        assert "deleted or merged" in str(exc.value)
 
-    def test_a_metadata_miss_is_not_retried_to_death(self, radarr, stub_url):
-        """A 500 here is deterministic, so three tries with backoff is six
-        wasted seconds per title."""
-        import time
+    def test_a_server_error_is_not_mistaken_for_an_unknown_title(self, radarr):
+        """The distinction that matters.
 
-        start = time.monotonic()
-        assert radarr.lookup_tmdb(500500) is None
-        assert time.monotonic() - start < 4
+        A 5xx means Radarr's metadata service, or the network to it, failed -
+        the title is very likely fine and worth retrying. Reporting that as
+        "this title does not exist" sends people off blacklisting IDs that were
+        never the problem.
+        """
+        with pytest.raises(ArrMetadataError) as exc:
+            radarr.add_movie(500500, quality_profile_id=4, root_folder="/movies")
+
+        message = str(exc.value)
+        assert "metadata service" in message
+        assert "temporary" in message
+        assert "does not recognise" not in message
+
+    def test_server_errors_are_still_retried(self, radarr):
+        """They are transient, so backing off and trying again is the point."""
+        REQUESTS.clear()
+        with pytest.raises(ArrMetadataError):
+            radarr.lookup_tmdb(500500)
+        assert REQUESTS.count("/api/v3/movie/lookup/tmdb") == 3
 
     def test_falls_back_to_an_imdb_lookup(self, radarr):
         """The two lookups go through different paths in Radarr, so one can

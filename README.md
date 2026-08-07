@@ -340,14 +340,25 @@ recorded outcome and reason — usually `already in library` or a filter.
 **"Trakt account is not authorised".** The source needs a connected account.
 Settings → Trakt → Connect account, then pick it in the list editor.
 
-**"Radarr has no metadata for TMDb …".** The title exists on Trakt but not in
-Radarr's metadata server, which answers the miss with an HTTP 500 rather than a
-404. Radarr's own Add Movie search will not find it either, so there is nothing
-Plextra can do about it — the title genuinely cannot be added right now. It is
-normal for cancelled and unreleased films, fan edits, YouTube specials and TV
-specials that Trakt files as movies. Plextra tries an IMDb lookup as a second
-route before giving up, and records the rest in History. Add the TMDb ID to the
-list's blacklisted IDs to stop it being retried every sync.
+**"Radarr returned HTTP 500 … metadata service".** Radarr proxies its metadata
+through `api.radarr.video`. That service answers a title it does not have with a
+clean **404**, so a **500 is not "this title does not exist"** — it means the
+metadata service, or your Radarr's network path to it, failed. That is
+transient. Do nothing: the next scheduled sync retries it, and it usually
+succeeds. In particular, do *not* blacklist the ID — the title is almost
+certainly fine.
+
+If it happens to several titles in one burst and then stops, the most likely
+cause is rate limiting: each add makes Radarr fetch metadata, and a big first
+sync fires a lot of those at once. Set a **limit** on the list to spread the
+work over several runs.
+
+**"Radarr does not recognise TMDb …".** *This* is the genuine miss — a clean 404
+from the metadata service. Radarr's own Add Movie search will not find it
+either, so there is nothing Plextra can do. Usually a TMDb entry that was
+deleted or merged after the list was built. Plextra tries an IMDb lookup as a
+second route first. Add the ID to the list's blacklisted IDs to stop it being
+retried.
 
 **"Path '…' is already configured for an existing movie".** You already have
 that film, under a *different* TMDb ID — merged or duplicated TMDb entries cause

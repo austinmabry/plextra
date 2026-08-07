@@ -5,13 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .arr import ArrClient, ArrError
+from .arr import ArrClient, ArrError, ArrUnknownIdError
 
 log = logging.getLogger(__name__)
-
-# See the note in radarr.py: a metadata miss comes back as a deterministic 500,
-# so retrying it three times only wastes time.
-_LOOKUP_ATTEMPTS = 2
 
 
 class SonarrClient(ArrClient):
@@ -78,10 +74,7 @@ class SonarrClient(ArrClient):
         for term in terms:
             try:
                 response = self.request(
-                    "GET",
-                    "api/v3/series/lookup",
-                    params={"term": term},
-                    max_attempts=_LOOKUP_ATTEMPTS,
+                    "GET", "api/v3/series/lookup", params={"term": term}
                 )
             except ArrError as exc:
                 log.debug("Sonarr lookup for %s failed: %s", term, exc)
@@ -100,25 +93,21 @@ class SonarrClient(ArrClient):
         return None
 
     @staticmethod
-    def unresolvable(tvdb_id: int, imdb_id: str = "") -> ArrError:
+    def unknown_id(tvdb_id: int, imdb_id: str = "") -> ArrUnknownIdError:
+        """Sonarr's metadata service returned a clean 404 for this ID."""
         ident = f"TVDb {tvdb_id}" + (f" / {imdb_id}" if imdb_id else "")
-        return ArrError(
-            f"Sonarr has no metadata for {ident}. Its metadata server does not "
-            "know this series, so Sonarr's own Add Series search will not find "
-            "it either."
+        return ArrUnknownIdError(
+            f"Sonarr does not recognise {ident}. Its metadata service returned "
+            "a clean 'not found', so Sonarr's own Add Series search will not "
+            "find it either."
         )
 
     def lookup_tvdb(self, tvdb_id: int) -> dict[str, Any] | None:
-        try:
-            response = self.request(
-                "GET",
-                "api/v3/series/lookup",
-                params={"term": f"tvdb:{tvdb_id}"},
-                max_attempts=_LOOKUP_ATTEMPTS,
-            )
-        except ArrError as exc:
-            log.debug("Sonarr lookup for TVDb %s failed: %s", tvdb_id, exc)
-            return None
+        # A 5xx propagates as ArrMetadataError: Sonarr's metadata service
+        # failing is a different thing from the series being unknown.
+        response = self.request(
+            "GET", "api/v3/series/lookup", params={"term": f"tvdb:{tvdb_id}"}
+        )
         if response.status_code != 200:
             log.debug(
                 "Sonarr lookup for TVDb %s returned %s.", tvdb_id, response.status_code
@@ -157,7 +146,7 @@ class SonarrClient(ArrClient):
     ) -> dict[str, Any]:
         lookup = self.lookup_tvdb(tvdb_id)
         if not lookup:
-            raise self.unresolvable(tvdb_id)
+            raise self.unknown_id(tvdb_id)
 
         payload = dict(lookup)
         payload.update(

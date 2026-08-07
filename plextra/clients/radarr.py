@@ -5,16 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .arr import ArrClient, ArrError
+from .arr import ArrClient, ArrError, ArrMetadataError, ArrUnknownIdError
 
 log = logging.getLogger(__name__)
-
-# Radarr answers a metadata miss on its lookup endpoints with a 500 rather than
-# a 404, and that 500 is deterministic - the title simply is not in its metadata
-# server. Retrying three times with backoff just costs six seconds per title and
-# fills the log, so lookups get one retry in case the failure really was
-# transient, and no more.
-_LOOKUP_ATTEMPTS = 2
 
 
 class RadarrClient(ArrClient):
@@ -71,10 +64,7 @@ class RadarrClient(ArrClient):
             return None
         try:
             response = self.request(
-                "GET",
-                "api/v3/movie/lookup",
-                params={"term": f"imdb:{imdb_id}"},
-                max_attempts=_LOOKUP_ATTEMPTS,
+                "GET", "api/v3/movie/lookup", params={"term": f"imdb:{imdb_id}"}
             )
         except ArrError as exc:
             log.debug("Radarr lookup for IMDb %s failed: %s", imdb_id, exc)
@@ -99,16 +89,12 @@ class RadarrClient(ArrClient):
         than hand-assembling one, because it carries titleSlug, images and the
         exact title Radarr expects.
         """
-        try:
-            response = self.request(
-                "GET",
-                "api/v3/movie/lookup/tmdb",
-                params={"tmdbId": tmdb_id},
-                max_attempts=_LOOKUP_ATTEMPTS,
-            )
-        except ArrError as exc:
-            log.debug("Radarr lookup for TMDb %s failed: %s", tmdb_id, exc)
-            return None
+        # A 5xx here propagates as ArrMetadataError rather than being swallowed:
+        # it means Radarr's metadata service failed, which is worth retrying,
+        # and is a different thing from the title being unknown.
+        response = self.request(
+            "GET", "api/v3/movie/lookup/tmdb", params={"tmdbId": tmdb_id}
+        )
         if response.status_code != 200:
             log.debug(
                 "Radarr lookup for TMDb %s returned %s.", tmdb_id, response.status_code
@@ -144,13 +130,14 @@ class RadarrClient(ArrClient):
         return lookup
 
     @staticmethod
-    def unresolvable(tmdb_id: int, imdb_id: str = "") -> ArrError:
+    def unknown_id(tmdb_id: int, imdb_id: str = "") -> ArrUnknownIdError:
+        """Radarr's metadata service returned a clean 404 for this ID."""
         ident = f"TMDb {tmdb_id}" + (f" / {imdb_id}" if imdb_id else "")
-        return ArrError(
-            f"Radarr has no metadata for {ident}. Its metadata server does not "
-            "know this title, so Radarr's own Add Movie search will not find it "
-            "either. This is normal for cancelled, unreleased, fan-made or "
-            "TV-special entries that exist on Trakt but not in Radarr."
+        return ArrUnknownIdError(
+            f"Radarr does not recognise {ident}. Its metadata service returned "
+            "a clean 'not found', so Radarr's own Add Movie search will not "
+            "find it either - usually a TMDb entry that was deleted or merged "
+            "after the list was built."
         )
 
     def add_movie(
@@ -167,7 +154,7 @@ class RadarrClient(ArrClient):
     ) -> dict[str, Any]:
         lookup = self.resolve_for_add(tmdb_id, imdb_id)
         if not lookup:
-            raise self.unresolvable(tmdb_id, imdb_id)
+            raise self.unknown_id(tmdb_id, imdb_id)
 
         payload = dict(lookup)
         payload.update(

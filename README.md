@@ -183,7 +183,7 @@ Set `PLEXTRA_COOKIE_SECURE=true` if you put it behind an HTTPS reverse proxy.
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests/ -q
+.venv/bin/pytest
 
 PLEXTRA_CONFIG_DIR=./config .venv/bin/python -m plextra
 ```

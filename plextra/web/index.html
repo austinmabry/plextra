@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plextra</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div id="login" class="overlay hidden">
+  <form id="login-form" class="card login-card">
+    <h1 class="brand">Plextra</h1>
+    <p class="muted">Enter the web password to continue.</p>
+    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+    <p id="login-error" class="error hidden"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <aside class="sidebar">
+    <div class="brand-row">
+      <span class="logo">◧</span>
+      <div>
+        <div class="brand">Plextra</div>
+        <div class="muted tiny" id="version"></div>
+      </div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-view="dashboard">Dashboard</button>
+      <button class="nav-item" data-view="lists">Lists</button>
+      <button class="nav-item" data-view="history">History</button>
+      <button class="nav-item" data-view="settings">Settings</button>
+      <button class="nav-item" data-view="logs">Logs</button>
+    </nav>
+    <div class="sidebar-foot">
+      <button id="logout" class="link hidden">Sign out</button>
+    </div>
+  </aside>
+
+  <main>
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- Dashboard -->
+    <section id="view-dashboard" class="view">
+      <h2>Dashboard</h2>
+      <div class="grid" id="status-cards"></div>
+      <h3>Recent activity</h3>
+      <div id="dashboard-runs"></div>
+    </section>
+
+    <!-- Lists -->
+    <section id="view-lists" class="view hidden">
+      <div class="view-head">
+        <h2>Lists</h2>
+        <button class="primary" id="new-list">Add list</button>
+      </div>
+      <div id="lists-body"></div>
+    </section>
+
+    <!-- History -->
+    <section id="view-history" class="view hidden">
+      <div class="view-head">
+        <h2>History</h2>
+        <button class="ghost" id="refresh-history">Refresh</button>
+      </div>
+      <div id="history-body"></div>
+      <div id="run-detail"></div>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view hidden">
+      <h2>Settings</h2>
+
+      <div class="card">
+        <h3>Trakt</h3>
+        <p class="muted">
+          Create an API app at
+          <a href="https://trakt.tv/oauth/applications" target="_blank" rel="noreferrer">trakt.tv/oauth/applications</a>.
+          Set the redirect URI to <code>urn:ietf:wg:oauth:2.0:oob</code>.
+        </p>
+        <div class="field-row">
+          <label>Client ID<input type="text" id="trakt-client-id" autocomplete="off"></label>
+          <label>Client secret<input type="password" id="trakt-client-secret" autocomplete="off"></label>
+        </div>
+        <div class="button-row">
+          <button class="primary" id="save-trakt">Save</button>
+          <button class="ghost" id="test-trakt">Test</button>
+          <button class="ghost" id="connect-trakt">Connect account</button>
+        </div>
+        <div id="device-code" class="device hidden"></div>
+        <div id="trakt-accounts"></div>
+      </div>
+
+      <div class="card">
+        <h3>Radarr <span class="muted tiny">movies</span></h3>
+        <label class="check"><input type="checkbox" id="radarr-enabled"> Enabled</label>
+        <div class="field-row">
+          <label>URL<input type="text" id="radarr-url" placeholder="http://radarr:7878"></label>
+          <label>API key<input type="password" id="radarr-api-key" autocomplete="off"></label>
+        </div>
+        <div class="button-row">
+          <button class="ghost" id="test-radarr">Test &amp; load options</button>
+        </div>
+        <div class="field-row">
+          <label>Quality profile<select id="radarr-profile"></select></label>
+          <label>Root folder<select id="radarr-root"></select></label>
+        </div>
+        <div class="field-row">
+          <label>Minimum availability
+            <select id="radarr-availability">
+              <option value="announced">Announced</option>
+              <option value="inCinemas">In cinemas</option>
+              <option value="released">Released</option>
+            </select>
+          </label>
+          <label>Tags<select id="radarr-tags" multiple size="4"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" id="radarr-monitored"> Add as monitored</label>
+        <label class="check"><input type="checkbox" id="radarr-search"> Search for the movie on add</label>
+        <div class="button-row"><button class="primary" id="save-radarr">Save</button></div>
+      </div>
+
+      <div class="card">
+        <h3>Sonarr <span class="muted tiny">shows</span></h3>
+        <label class="check"><input type="checkbox" id="sonarr-enabled"> Enabled</label>
+        <div class="field-row">
+          <label>URL<input type="text" id="sonarr-url" placeholder="http://sonarr:8989"></label>
+          <label>API key<input type="password" id="sonarr-api-key" autocomplete="off"></label>
+        </div>
+        <div class="button-row">
+          <button class="ghost" id="test-sonarr">Test &amp; load options</button>
+        </div>
+        <div class="field-row">
+          <label>Quality profile<select id="sonarr-profile"></select></label>
+          <label>Root folder<select id="sonarr-root"></select></label>
+        </div>
+        <div class="field-row">
+          <label id="sonarr-language-label">Language profile <span class="muted tiny">(Sonarr v3 only)</span>
+            <select id="sonarr-language"></select>
+          </label>
+          <label>Series type
+            <select id="sonarr-series-type">
+              <option value="standard">Standard</option>
+              <option value="daily">Daily</option>
+              <option value="anime">Anime</option>
+            </select>
+          </label>
+        </div>
+        <div class="field-row">
+          <label>Monitor
+            <select id="sonarr-monitor">
+              <option value="all">All episodes</option>
+              <option value="future">Future episodes</option>
+              <option value="missing">Missing episodes</option>
+              <option value="existing">Existing episodes</option>
+              <option value="firstSeason">First season</option>
+              <option value="lastSeason">Last season</option>
+              <option value="pilot">Pilot only</option>
+              <option value="none">None</option>
+            </select>
+          </label>
+          <label>Tags<select id="sonarr-tags" multiple size="4"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" id="sonarr-monitored"> Add as monitored</label>
+        <label class="check"><input type="checkbox" id="sonarr-season-folder"> Use season folders</label>
+        <label class="check"><input type="checkbox" id="sonarr-search"> Search for missing episodes on add</label>
+        <div class="button-row"><button class="primary" id="save-sonarr">Save</button></div>
+      </div>
+
+      <div class="card">
+        <h3>Security</h3>
+        <p class="muted">
+          Plextra stores your Radarr, Sonarr and Trakt credentials. Set a password
+          unless the port is already private. Leave it blank to remove it.
+        </p>
+        <div class="field-row">
+          <label>Web password<input type="password" id="web-password" autocomplete="new-password"></label>
+        </div>
+        <div class="button-row"><button class="primary" id="save-password">Save password</button></div>
+      </div>
+    </section>
+
+    <!-- Logs -->
+    <section id="view-logs" class="view hidden">
+      <div class="view-head">
+        <h2>Logs</h2>
+        <label class="check"><input type="checkbox" id="log-follow" checked> Follow</label>
+      </div>
+      <pre id="log-body" class="logs"></pre>
+    </section>
+  </main>
+</div>
+
+<!-- List editor -->
+<div id="editor" class="overlay hidden">
+  <div class="card editor-card">
+    <div class="view-head">
+      <h3 id="editor-title">Add list</h3>
+      <button class="link" id="editor-close">Close</button>
+    </div>
+
+    <div class="field-row">
+      <label>Name<input type="text" id="f-name" placeholder="My watchlist"></label>
+      <label>Media type
+        <select id="f-media">
+          <option value="movie">Movies → Radarr</option>
+          <option value="show">Shows → Sonarr</option>
+        </select>
+      </label>
+    </div>
+
+    <h4>Source</h4>
+    <div class="field-row">
+      <label>Trakt list
+        <select id="f-source-type">
+          <option value="watchlist">Watchlist</option>
+          <option value="list">Custom list</option>
+          <option value="collection">Collection</option>
+          <option value="recommended">Personal recommendations</option>
+          <option value="trending">Trending</option>
+          <option value="popular">Popular</option>
+          <option value="anticipated">Anticipated</option>
+          <option value="boxoffice">Box office (movies only)</option>
+          <option value="watched">Most watched</option>
+          <option value="played">Most played</option>
+          <option value="person">By person</option>
+        </select>
+      </label>
+      <label>Trakt account<select id="f-account"></select></label>
+    </div>
+    <div class="field-row" id="row-list-url">
+      <label>List URL or user/slug
+        <input type="text" id="f-list-url" placeholder="https://trakt.tv/users/someone/lists/my-list">
+      </label>
+      <label>&nbsp;<button class="ghost" id="pick-list" type="button">Pick from my lists</button></label>
+    </div>
+    <div id="list-picker" class="picker hidden"></div>
+    <div class="field-row hidden" id="row-person">
+      <label>Person<input type="text" id="f-person" placeholder="Denis Villeneuve"></label>
+    </div>
+    <div class="field-row hidden" id="row-period">
+      <label>Period
+        <select id="f-period">
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+          <option value="all">All time</option>
+        </select>
+      </label>
+    </div>
+
+    <h4>Selection</h4>
+    <div class="field-row">
+      <label>Limit <span class="muted tiny">0 = no limit, applied after filtering</span>
+        <input type="number" id="f-limit" min="0" value="0">
+      </label>
+      <label>Sort
+        <select id="f-sort">
+          <option value="none">Trakt order</option>
+          <option value="votes">Votes</option>
+          <option value="rating">Rating</option>
+          <option value="released">Release date</option>
+        </select>
+      </label>
+    </div>
+
+    <h4>Schedule</h4>
+    <div class="field-row">
+      <label>Type
+        <select id="f-sched-type">
+          <option value="interval">Every N hours</option>
+          <option value="cron">Cron</option>
+          <option value="manual">Manual only</option>
+        </select>
+      </label>
+      <label id="row-hours">Hours<input type="number" id="f-hours" min="0.25" step="0.25" value="24"></label>
+      <label id="row-cron" class="hidden">Cron<input type="text" id="f-cron" placeholder="0 3 * * *"></label>
+    </div>
+
+    <h4>Filters <span class="muted tiny">every number is off at 0</span></h4>
+    <div class="field-row">
+      <label>Min year<input type="number" id="f-min-year" min="0" value="0"></label>
+      <label>Max year<input type="number" id="f-max-year" min="0" value="0"></label>
+      <label>Min runtime (min)<input type="number" id="f-min-runtime" min="0" value="0"></label>
+      <label>Max runtime (min)<input type="number" id="f-max-runtime" min="0" value="0"></label>
+    </div>
+    <div class="field-row">
+      <label>Min rating (0-10)<input type="number" id="f-min-rating" min="0" max="10" step="0.1" value="0"></label>
+      <label>Min votes<input type="number" id="f-min-votes" min="0" value="0"></label>
+    </div>
+    <div class="field-row">
+      <label>Allowed countries <span class="muted tiny">blank = any; "ignore" = also allow unknown</span>
+        <input type="text" id="f-countries" placeholder="us, gb">
+      </label>
+      <label>Allowed languages<input type="text" id="f-languages" placeholder="en"></label>
+    </div>
+    <div class="field-row">
+      <label>Blacklisted genres<input type="text" id="f-genres" placeholder="anime, horror"></label>
+      <label id="row-networks">Blacklisted networks<input type="text" id="f-networks" placeholder="Nickelodeon"></label>
+    </div>
+    <div class="field-row">
+      <label>Blacklisted title keywords<input type="text" id="f-keywords" placeholder="untitled, wwe"></label>
+      <label>Blacklisted IDs <span class="muted tiny" id="id-hint">TMDb</span>
+        <input type="text" id="f-ids" placeholder="12345, 67890">
+      </label>
+    </div>
+
+    <h4>Overrides <span class="muted tiny">blank inherits the Radarr/Sonarr defaults</span></h4>
+    <div class="field-row">
+      <label>Quality profile<select id="f-profile"></select></label>
+      <label>Root folder<select id="f-root"></select></label>
+    </div>
+    <div class="field-row">
+      <label>Search on add
+        <select id="f-search">
+          <option value="">Inherit</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </label>
+      <label>Extra tags<select id="f-tags" multiple size="4"></select></label>
+    </div>
+
+    <label class="check"><input type="checkbox" id="f-enabled" checked> Enabled</label>
+    <label class="check"><input type="checkbox" id="f-dry-run"> Dry run (report only, never add)</label>
+
+    <div class="button-row">
+      <button class="primary" id="editor-save">Save list</button>
+      <button class="ghost" id="editor-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

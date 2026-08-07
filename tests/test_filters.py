@@ -1,46 +1,41 @@
 from plextra.config import Filters
-from plextra.filters import (
-    describe,
-    evaluate,
-    external_id,
-    item_year,
-    sort_items,
-)
+from plextra.filters import evaluate, sort_items
+from plextra.providers.base import MediaItem
 
 
 def movie(**overrides):
-    base = {
-        "title": "Arrival",
-        "year": 2016,
-        "ids": {"trakt": 1, "tmdb": 329865, "imdb": "tt2543164"},
-        "runtime": 116,
-        "country": "us",
-        "language": "en",
-        "genres": ["science-fiction", "drama"],
-        "rating": 8.1,
-        "votes": 42000,
-        "released": "2016-11-11",
-    }
+    base = dict(
+        ids={"trakt": 1, "tmdb": 329865, "imdb": "tt2543164"},
+        title="Arrival",
+        year=2016,
+        runtime=116,
+        country="us",
+        language="en",
+        genres=["science-fiction", "drama"],
+        rating=8.1,
+        votes=42000,
+        released="2016-11-11",
+    )
     base.update(overrides)
-    return base
+    return MediaItem(**base)
 
 
 def show(**overrides):
-    base = {
-        "title": "Severance",
-        "year": 2022,
-        "ids": {"trakt": 2, "tvdb": 371980, "tmdb": 95396},
-        "runtime": 50,
-        "country": "us",
-        "language": "en",
-        "network": "Apple TV+",
-        "genres": ["drama", "science-fiction"],
-        "rating": 8.6,
-        "votes": 9000,
-        "first_aired": "2022-02-18T08:00:00.000Z",
-    }
+    base = dict(
+        ids={"trakt": 2, "tvdb": 371980, "tmdb": 95396},
+        title="Severance",
+        year=2022,
+        runtime=50,
+        country="us",
+        language="en",
+        network="Apple TV+",
+        genres=["drama", "science-fiction"],
+        rating=8.6,
+        votes=9000,
+        released="2022-02-18",
+    )
     base.update(overrides)
-    return base
+    return MediaItem(**base)
 
 
 class TestDefaults:
@@ -52,30 +47,30 @@ class TestDefaults:
         """traktarr's stock config blacklisted anything after 2019."""
         assert evaluate(movie(year=2025), "movie", Filters()) is None
 
-    def test_missing_metadata_passes_when_unfiltered(self):
-        sparse = {"title": "Mystery", "ids": {"tmdb": 5}}
+    def test_metadata_poor_item_passes_when_unfiltered(self):
+        """An IMDb list gives little more than an ID; that is fine unfiltered."""
+        sparse = MediaItem(ids={"imdb": "tt0133093"}, title="The Matrix")
         assert evaluate(sparse, "movie", Filters()) is None
+
+    def test_item_with_neither_title_nor_id_is_rejected(self):
+        assert evaluate(MediaItem(), "movie", Filters()) == "no title and no ID"
 
 
 class TestYear:
     def test_below_min_year(self):
-        reason = evaluate(movie(year=1994), "movie", Filters(min_year=2000))
-        assert "before 2000" in reason
+        assert "before 2000" in evaluate(movie(year=1994), "movie", Filters(min_year=2000))
 
     def test_above_max_year(self):
-        reason = evaluate(movie(year=2024), "movie", Filters(max_year=2020))
-        assert "after 2020" in reason
+        assert "after 2020" in evaluate(movie(year=2024), "movie", Filters(max_year=2020))
 
     def test_inside_range(self):
-        assert evaluate(movie(year=2016), "movie", Filters(min_year=2000, max_year=2020)) is None
+        assert evaluate(movie(), "movie", Filters(min_year=2000, max_year=2020)) is None
 
     def test_missing_year_only_matters_when_filtering(self):
-        item = movie(year=None, released=None)
+        item = movie(year=None)
         assert evaluate(item, "movie", Filters()) is None
-        assert evaluate(item, "movie", Filters(min_year=2000)) == "no release year on Trakt"
-
-    def test_show_year_falls_back_to_first_aired(self):
-        assert item_year(show(year=None)) == 2022
+        reason = evaluate(item, "movie", Filters(min_year=2000), "IMDb")
+        assert reason == "no release year from IMDb"
 
 
 class TestRuntime:
@@ -88,6 +83,11 @@ class TestRuntime:
     def test_within_bounds(self):
         assert evaluate(movie(), "movie", Filters(min_runtime=60, max_runtime=200)) is None
 
+    def test_missing_runtime_names_the_provider(self):
+        """TMDb list endpoints carry no runtime, and that should be visible."""
+        reason = evaluate(movie(runtime=None), "movie", Filters(min_runtime=60), "TMDb")
+        assert reason == "no runtime from TMDb"
+
 
 class TestCountryAndLanguage:
     def test_empty_allows_anything(self):
@@ -97,20 +97,18 @@ class TestCountryAndLanguage:
         assert evaluate(movie(country="us"), "movie", Filters(allowed_countries=["us", "gb"])) is None
 
     def test_disallowed_value_blocked(self):
-        reason = evaluate(movie(country="fr"), "movie", Filters(allowed_countries=["us"]))
-        assert "country is FR" in reason
+        assert "country is FR" in evaluate(movie(country="fr"), "movie", Filters(allowed_countries=["us"]))
 
     def test_missing_value_blocked_when_a_list_is_set(self):
-        reason = evaluate(movie(country=None), "movie", Filters(allowed_countries=["us"]))
-        assert reason == "no country listed on Trakt"
+        reason = evaluate(movie(country=None), "movie", Filters(allowed_countries=["us"]), "Plex")
+        assert reason == "no country from Plex"
 
     def test_ignore_keyword_allows_missing_values(self):
         assert evaluate(movie(country=None), "movie", Filters(allowed_countries=["ignore"])) is None
 
     def test_matching_is_exact_not_substring(self):
         """traktarr's substring match meant 'us' also matched 'rus'."""
-        reason = evaluate(movie(country="rus"), "movie", Filters(allowed_countries=["us"]))
-        assert reason is not None
+        assert evaluate(movie(country="rus"), "movie", Filters(allowed_countries=["us"])) is not None
 
     def test_language_filter(self):
         assert evaluate(movie(language="ja"), "movie", Filters(allowed_languages=["en"])) is not None
@@ -119,8 +117,7 @@ class TestCountryAndLanguage:
 
 class TestGenresNetworksTitles:
     def test_blacklisted_genre(self):
-        reason = evaluate(movie(), "movie", Filters(blacklisted_genres=["drama"]))
-        assert "blacklisted genre drama" == reason
+        assert evaluate(movie(), "movie", Filters(blacklisted_genres=["drama"])) == "blacklisted genre drama"
 
     def test_genre_case_insensitive(self):
         assert evaluate(movie(), "movie", Filters(blacklisted_genres=["DRAMA"])) is not None
@@ -128,26 +125,31 @@ class TestGenresNetworksTitles:
     def test_unrelated_genre_passes(self):
         assert evaluate(movie(), "movie", Filters(blacklisted_genres=["horror"])) is None
 
+    def test_missing_genres_names_the_provider(self):
+        reason = evaluate(movie(genres=[]), "movie", Filters(blacklisted_genres=["horror"]), "IMDb")
+        assert reason == "no genres from IMDb"
+
     def test_blacklisted_network_for_shows(self):
-        reason = evaluate(show(), "show", Filters(blacklisted_networks=["apple"]))
-        assert "blacklisted network" in reason
+        assert "blacklisted network" in evaluate(show(), "show", Filters(blacklisted_networks=["apple"]))
 
     def test_networks_ignored_for_movies(self):
         assert evaluate(movie(), "movie", Filters(blacklisted_networks=["apple"])) is None
 
     def test_title_keyword(self):
-        reason = evaluate(movie(title="Untitled Sequel"), "movie", Filters(
-            blacklisted_title_keywords=["untitled"]
-        ))
+        reason = evaluate(
+            movie(title="Untitled Sequel"), "movie", Filters(blacklisted_title_keywords=["untitled"])
+        )
         assert "untitled" in reason
 
-    def test_blacklisted_id(self):
-        reason = evaluate(movie(), "movie", Filters(blacklisted_ids=[329865]))
-        assert reason == "blacklisted ID 329865"
+    def test_blacklisted_id_uses_tmdb_for_movies(self):
+        assert evaluate(movie(), "movie", Filters(blacklisted_ids=[329865])) == "blacklisted ID 329865"
 
-    def test_show_id_uses_tvdb(self):
+    def test_blacklisted_id_uses_tvdb_for_shows(self):
         assert evaluate(show(), "show", Filters(blacklisted_ids=[371980])) is not None
-        assert evaluate(show(), "show", Filters(blacklisted_ids=[95396])) is None
+
+    def test_blacklist_ignores_ids_the_target_does_not_use(self):
+        """A show is keyed by TVDb, so a TMDb number must not match it."""
+        assert evaluate(show(), "show", Filters(blacklisted_ids=[999999])) is None
 
 
 class TestRatings:
@@ -159,29 +161,40 @@ class TestRatings:
         assert "under 50000" in evaluate(movie(), "movie", Filters(min_votes=50000))
         assert evaluate(movie(), "movie", Filters(min_votes=1000)) is None
 
+    def test_missing_rating_names_the_provider(self):
+        reason = evaluate(movie(rating=None), "movie", Filters(min_rating=7.0), "a custom list")
+        assert reason == "no rating from a custom list"
 
-class TestHelpers:
-    def test_external_id_per_media_type(self):
-        assert external_id(movie(), "movie") == 329865
-        assert external_id(show(), "show") == 371980
-        assert external_id({"ids": {}}, "movie") is None
 
-    def test_describe(self):
-        assert describe(movie()) == "Arrival (2016)"
-        assert describe({"title": "Nameless"}) == "Nameless"
+class TestMediaItem:
+    def test_target_id_per_media_type(self):
+        assert movie().target_id("movie") == 329865
+        assert show().target_id("show") == 371980
+        assert MediaItem(ids={"imdb": "tt1"}).target_id("movie") is None
 
+    def test_imdb_id_rejects_junk(self):
+        assert MediaItem(ids={"imdb": "tt0133093"}).imdb_id == "tt0133093"
+        assert MediaItem(ids={"imdb": "12345"}).imdb_id is None
+        assert MediaItem().imdb_id is None
+
+    def test_label(self):
+        assert movie().label == "Arrival (2016)"
+        assert MediaItem(title="Nameless").label == "Nameless"
+
+
+class TestSorting:
     def test_sort_by_votes(self):
         items = [movie(title="A", votes=10), movie(title="B", votes=90)]
-        assert [i["title"] for i in sort_items(items, "movie", "votes")] == ["B", "A"]
+        assert [i.title for i in sort_items(items, "movie", "votes")] == ["B", "A"]
 
     def test_sort_by_release_date(self):
         items = [movie(title="A", released="2001-01-01"), movie(title="B", released="2020-01-01")]
-        assert [i["title"] for i in sort_items(items, "movie", "released")] == ["B", "A"]
+        assert [i.title for i in sort_items(items, "movie", "released")] == ["B", "A"]
 
     def test_sort_none_keeps_order(self):
         items = [movie(title="A", votes=1), movie(title="B", votes=99)]
-        assert [i["title"] for i in sort_items(items, "movie", "none")] == ["A", "B"]
+        assert [i.title for i in sort_items(items, "movie", "none")] == ["A", "B"]
 
-    def test_sort_tolerates_missing_keys(self):
+    def test_sort_tolerates_missing_values(self):
         items = [movie(title="A", votes=None), movie(title="B", votes=5)]
-        assert [i["title"] for i in sort_items(items, "movie", "votes")] == ["B", "A"]
+        assert [i.title for i in sort_items(items, "movie", "votes")] == ["B", "A"]

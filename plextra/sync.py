@@ -1,4 +1,4 @@
-"""The sync engine: Trakt list in, Radarr/Sonarr additions out."""
+"""The sync engine: a list from any provider in, Radarr/Sonarr additions out."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import filters as filter_rules
+from . import providers as provider_registry
 from . import settings
-from .clients import ArrError, RadarrClient, SonarrClient, TraktClient, TraktError
+from .clients import ArrError, RadarrClient, SonarrClient
 from .config import AppConfig, ConfigStore, ListJob, TraktAccount
 from .db import Database
+from .providers.base import MediaItem, Provider, ProviderError
 
 log = logging.getLogger("plextra.sync")
 
@@ -37,6 +39,7 @@ class SyncResult:
     filtered: int = 0
     existing: int = 0
     excluded: int = 0
+    unresolved: int = 0
     added: int = 0
     failed: int = 0
     message: str = ""
@@ -54,6 +57,7 @@ class SyncResult:
             "filtered": self.filtered,
             "existing": self.existing,
             "excluded": self.excluded,
+            "unresolved": self.unresolved,
             "added": self.added,
             "failed": self.failed,
             "message": self.message,
@@ -105,7 +109,7 @@ class SyncEngine:
 
         try:
             self._execute(config, job, result)
-        except (SyncConfigError, TraktError, ArrError) as exc:
+        except (SyncConfigError, ProviderError, ArrError) as exc:
             result.status = "error"
             result.message = str(exc)
             log.error("[%s] %s", job.name, exc)
@@ -154,17 +158,31 @@ class SyncEngine:
         )
         tags = sorted(set(target.tags) | set(job.tags))
 
-        log.info(
-            "[%s] Starting %s sync from Trakt %s%s.",
-            job.name,
-            media,
-            job.source.type,
-            " (dry run)" if result.dry_run else "",
-        )
+        with self._build_provider(config, job) as provider:
+            if not provider.configured():
+                raise SyncConfigError(
+                    f"{provider.name} is not set up yet. {provider.setup_hint}".strip()
+                )
 
-        items = self._fetch_from_trakt(config, job)
+            log.info(
+                "[%s] Starting %s sync from %s %s%s.",
+                job.name,
+                media,
+                provider.name,
+                job.source.type,
+                " (dry run)" if result.dry_run else "",
+            )
+            items = provider.fetch(job.source, media, max_items=job.limit)
+
+        items = provider_registry.dedupe(items)
         result.fetched = len(items)
-        log.info("[%s] Trakt returned %d %s.", job.name, len(items), _plural(media, len(items)))
+        log.info(
+            "[%s] %s returned %d %s.",
+            job.name,
+            provider.name,
+            len(items),
+            _plural(media, len(items)),
+        )
 
         with self._build_client(target, media) as arr:
             library = (
@@ -187,19 +205,9 @@ class SyncEngine:
                 if arr.supports_language_profiles():
                     language_profile_id = config.sonarr.language_profile_id
 
-            candidates, skipped = self._select(job, items, library, exclusions, result)
-            self.db.add_items(result.run_id, skipped)
-
-            candidates = filter_rules.sort_items(candidates, media, job.sort)
-            if job.limit:
-                if len(candidates) > job.limit:
-                    log.info(
-                        "[%s] Limiting %d eligible titles to %d.",
-                        job.name,
-                        len(candidates),
-                        job.limit,
-                    )
-                candidates = candidates[: job.limit]
+            candidates = self._select(
+                job, provider, arr, items, library, exclusions, result
+            )
             result.candidates = len(candidates)
 
             if not candidates:
@@ -234,17 +242,13 @@ class SyncEngine:
 
     # -- steps --------------------------------------------------------------- #
 
-    def _fetch_from_trakt(self, config: AppConfig, job: ListJob) -> list[dict[str, Any]]:
+    def _build_provider(self, config: AppConfig, job: ListJob) -> Provider:
         def persist(username: str, account: TraktAccount) -> None:
             self.store.mutate(lambda cfg: cfg.trakt.accounts.__setitem__(username, account))
 
-        if not config.trakt.client_id:
-            raise SyncConfigError(
-                "No Trakt application configured. Add a client ID and secret in Settings."
-            )
-
-        with TraktClient(config.trakt, on_account_update=persist) as trakt:
-            return trakt.fetch(job.source, job.media_type, max_items=job.limit)
+        return provider_registry.build(
+            job.source.provider, config, on_account_update=persist
+        )
 
     @staticmethod
     def _build_client(target: Any, media: str) -> Any:
@@ -255,54 +259,98 @@ class SyncEngine:
     def _select(
         self,
         job: ListJob,
-        items: list[dict[str, Any]],
+        provider: Provider,
+        arr: Any,
+        items: list[MediaItem],
         library: set[int],
         exclusions: set[int],
         result: SyncResult,
-    ) -> tuple[list[dict[str, Any]], list[tuple[str, int | None, str | None, str, str]]]:
-        """Split Trakt items into things to add and things to record as skipped."""
+    ) -> list[tuple[MediaItem, int]]:
+        """Filter, sort, then walk the list resolving IDs until the limit is met.
+
+        ID resolution can cost an HTTP request per item, so it happens here -
+        lazily, in priority order, stopping as soon as enough eligible titles
+        are found - rather than up front for the whole list.
+        """
         media = job.media_type
-        candidates: list[dict[str, Any]] = []
+        id_label = "TMDb" if media == "movie" else "TVDb"
         skipped: list[tuple[str, int | None, str | None, str, str]] = []
 
+        passed: list[MediaItem] = []
         for item in items:
-            label = filter_rules.describe(item)
-            year = filter_rules.item_year(item)
-            ident = filter_rules.external_id(item, media)
-            id_label = "TMDb" if media == "movie" else "TVDb"
+            reason = filter_rules.evaluate(item, media, job.filters, provider.name)
+            if reason:
+                result.filtered += 1
+                skipped.append((item.label, item.year, None, "filtered", reason))
+                log.debug("[%s] %s filtered: %s", job.name, item.label, reason)
+            else:
+                passed.append(item)
 
+        passed = filter_rules.sort_items(passed, media, job.sort)
+
+        candidates: list[tuple[MediaItem, int]] = []
+        for item in passed:
+            if job.limit and len(candidates) >= job.limit:
+                break
+
+            ident = item.target_id(media)
             if ident is None:
-                skipped.append((label, year, None, "skipped", f"no {id_label} ID on Trakt"))
-                log.debug("[%s] %s has no %s ID.", job.name, label, id_label)
+                ident = self._resolve(item, media, provider, arr)
+            if ident is None:
+                result.unresolved += 1
+                skipped.append(
+                    (item.label, item.year, item.imdb_id, "skipped", f"no {id_label} ID found")
+                )
+                log.debug("[%s] Could not resolve a %s ID for %s.", job.name, id_label, item.label)
                 continue
+
             if ident in library:
                 result.existing += 1
-                skipped.append((label, year, str(ident), "existing", "already in library"))
+                skipped.append((item.label, item.year, str(ident), "existing", "already in library"))
                 continue
             if ident in exclusions:
                 result.excluded += 1
-                skipped.append((label, year, str(ident), "excluded", "on the exclusion list"))
-                log.debug("[%s] %s is excluded downstream.", job.name, label)
+                skipped.append((item.label, item.year, str(ident), "excluded", "on the exclusion list"))
                 continue
 
-            reason = filter_rules.evaluate(item, media, job.filters)
-            if reason:
-                result.filtered += 1
-                skipped.append((label, year, str(ident), "filtered", reason))
-                log.debug("[%s] %s filtered: %s", job.name, label, reason)
-                continue
+            candidates.append((item, ident))
 
-            candidates.append(item)
-
+        self.db.add_items(result.run_id, skipped)
         log.info(
-            "[%s] %d eligible, %d already present, %d excluded, %d filtered out.",
+            "[%s] %d eligible, %d already present, %d excluded, %d filtered out, %d unresolved.",
             job.name,
             len(candidates),
             result.existing,
             result.excluded,
             result.filtered,
+            result.unresolved,
         )
-        return candidates, skipped
+        return candidates
+
+    @staticmethod
+    def _resolve(item: MediaItem, media: str, provider: Provider, arr: Any) -> int | None:
+        """Find the ID the target needs, by whatever route is available."""
+        # 1. The provider's own API, e.g. TMDb's external IDs for a show.
+        try:
+            provider.resolve_ids(item, media)
+        except ProviderError as exc:
+            log.debug("Provider could not resolve IDs for %s: %s", item.label, exc)
+        ident = item.target_id(media)
+        if ident is not None:
+            return ident
+
+        # 2. Radarr/Sonarr's own search, which already knows the cross-mappings.
+        try:
+            if media == "movie":
+                if item.imdb_id:
+                    return arr.resolve_tmdb_id(item.imdb_id)
+            else:
+                return arr.resolve_tvdb_id(
+                    imdb_id=item.imdb_id or "", tmdb_id=item.numeric_id("tmdb")
+                )
+        except ArrError as exc:
+            log.debug("Lookup failed for %s: %s", item.label, exc)
+        return None
 
     def _add_all(
         self,
@@ -310,7 +358,7 @@ class SyncEngine:
         job: ListJob,
         arr: Any,
         media: str,
-        candidates: list[dict[str, Any]],
+        candidates: list[tuple[MediaItem, int]],
         result: SyncResult,
         quality_profile_id: int,
         root_folder: str,
@@ -319,16 +367,14 @@ class SyncEngine:
         language_profile_id: int | None,
         target: Any,
     ) -> None:
-        for index, item in enumerate(candidates):
-            label = filter_rules.describe(item)
-            year = filter_rules.item_year(item)
-            ident = filter_rules.external_id(item, media)
+        for index, (item, ident) in enumerate(candidates):
+            label = item.label
 
             if result.dry_run:
                 result.added += 1
                 result.added_titles.append(label)
                 self.db.add_item(
-                    result.run_id, label, year, str(ident), "dry_run", "would be added"
+                    result.run_id, label, item.year, str(ident), "dry_run", "would be added"
                 )
                 log.info("[%s] Would add %s.", job.name, label)
                 continue
@@ -359,12 +405,12 @@ class SyncEngine:
                     )
             except ArrError as exc:
                 result.failed += 1
-                self.db.add_item(result.run_id, label, year, str(ident), "failed", str(exc))
+                self.db.add_item(result.run_id, label, item.year, str(ident), "failed", str(exc))
                 log.error("[%s] Could not add %s: %s", job.name, label, exc)
             else:
                 result.added += 1
                 result.added_titles.append(label)
-                self.db.add_item(result.run_id, label, year, str(ident), "added", "")
+                self.db.add_item(result.run_id, label, item.year, str(ident), "added", "")
                 log.info("[%s] Added %s.", job.name, label)
 
             if index < len(candidates) - 1 and settings.ADD_DELAY_SECONDS > 0:

@@ -136,19 +136,11 @@ class TestResolveSource:
         with pytest.raises(TraktError):
             self.resolve("boxoffice", media="show")
 
-    def test_unknown_type_rejected_by_the_model(self):
-        from pydantic import ValidationError
-
+    def test_unknown_type_is_rejected(self):
+        """Now that many providers exist, the API validates against the provider."""
         from plextra.config import Source
 
-        with pytest.raises(ValidationError, match="Unknown Trakt source"):
-            Source(type="nonsense")
-
-    def test_resolve_still_guards_an_unvalidated_source(self):
-        """Defence in depth for a source that bypassed model validation."""
-        from plextra.config import Source
-
-        source = Source.model_construct(type="nonsense")
+        source = Source(provider="trakt", type="nonsense")
         with self.client() as trakt:
             with pytest.raises(TraktError, match="Unknown Trakt source"):
                 trakt._resolve(source, "movie")

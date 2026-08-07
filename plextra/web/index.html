@@ -75,7 +75,7 @@
       <h2>Settings</h2>
 
       <div class="card">
-        <h3>Trakt</h3>
+        <h3>Trakt <span class="muted tiny">optional, like every provider below</span></h3>
         <p class="muted">
           Create an API app at
           <a href="https://trakt.tv/oauth/applications" target="_blank" rel="noreferrer">trakt.tv/oauth/applications</a>.
@@ -92,6 +92,59 @@
         </div>
         <div id="device-code" class="device hidden"></div>
         <div id="trakt-accounts"></div>
+      </div>
+
+      <div class="card">
+        <h3>Other list providers</h3>
+        <p class="muted">
+          Only fill in the ones you want to use. IMDb, StevenLu, another
+          Radarr/Sonarr, and custom URLs need nothing here.
+        </p>
+
+        <div class="field-row">
+          <label>TMDb API key <span class="muted tiny">(v3 auth)</span>
+            <input type="password" id="tmdb-api-key" autocomplete="off">
+          </label>
+          <label>&nbsp;
+            <span class="button-row" style="margin:0">
+              <button class="primary" id="save-tmdb">Save</button>
+              <button class="ghost" id="test-tmdb">Test</button>
+            </span>
+          </label>
+        </div>
+        <p class="muted tiny">
+          Free from
+          <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">themoviedb.org</a>.
+          Unlocks TMDb lists, collections, companies, keywords, people and the charts.
+        </p>
+
+        <div class="field-row">
+          <label>MDBList API key<input type="password" id="mdblist-api-key" autocomplete="off"></label>
+          <label>&nbsp;
+            <span class="button-row" style="margin:0">
+              <button class="primary" id="save-mdblist">Save</button>
+              <button class="ghost" id="test-mdblist">Test</button>
+            </span>
+          </label>
+        </div>
+        <p class="muted tiny">
+          Free from
+          <a href="https://mdblist.com/preferences/" target="_blank" rel="noreferrer">mdblist.com/preferences</a>.
+        </p>
+
+        <div class="field-row">
+          <label>Plex token<input type="password" id="plex-token" autocomplete="off"></label>
+          <label>&nbsp;
+            <span class="button-row" style="margin:0">
+              <button class="primary" id="save-plex">Save</button>
+              <button class="ghost" id="test-plex">Test</button>
+            </span>
+          </label>
+        </div>
+        <p class="muted tiny">
+          In Plex Web, open any item, choose Get Info, then View XML, and copy the
+          <code>X-Plex-Token</code> value from the address bar.
+        </p>
       </div>
 
       <div class="card">
@@ -214,44 +267,19 @@
 
     <h4>Source</h4>
     <div class="field-row">
-      <label>Trakt list
-        <select id="f-source-type">
-          <option value="watchlist">Watchlist</option>
-          <option value="list">Custom list</option>
-          <option value="collection">Collection</option>
-          <option value="recommended">Personal recommendations</option>
-          <option value="trending">Trending</option>
-          <option value="popular">Popular</option>
-          <option value="anticipated">Anticipated</option>
-          <option value="boxoffice">Box office (movies only)</option>
-          <option value="watched">Most watched</option>
-          <option value="played">Most played</option>
-          <option value="person">By person</option>
-        </select>
-      </label>
-      <label>Trakt account<select id="f-account"></select></label>
+      <label>List provider<select id="f-provider"></select></label>
+      <label>Which list<select id="f-source-type"></select></label>
     </div>
-    <div class="field-row" id="row-list-url">
-      <label>List URL or user/slug
-        <input type="text" id="f-list-url" placeholder="https://trakt.tv/users/someone/lists/my-list">
-      </label>
-      <label>&nbsp;<button class="ghost" id="pick-list" type="button">Pick from my lists</button></label>
+    <p id="provider-note" class="muted tiny"></p>
+    <div class="field-row hidden" id="row-account">
+      <label>Account<select id="f-account"></select></label>
+    </div>
+    <!-- Rendered from the provider descriptors served by /api/providers. -->
+    <div id="source-fields"></div>
+    <div class="button-row hidden" id="row-picker">
+      <button class="ghost" id="pick-list" type="button">Pick from my lists</button>
     </div>
     <div id="list-picker" class="picker hidden"></div>
-    <div class="field-row hidden" id="row-person">
-      <label>Person<input type="text" id="f-person" placeholder="Denis Villeneuve"></label>
-    </div>
-    <div class="field-row hidden" id="row-period">
-      <label>Period
-        <select id="f-period">
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-          <option value="yearly">Yearly</option>
-          <option value="all">All time</option>
-        </select>
-      </label>
-    </div>
 
     <h4>Selection</h4>
     <div class="field-row">
@@ -260,7 +288,7 @@
       </label>
       <label>Sort
         <select id="f-sort">
-          <option value="none">Trakt order</option>
+          <option value="none">The list's own order</option>
           <option value="votes">Votes</option>
           <option value="rating">Rating</option>
           <option value="released">Release date</option>

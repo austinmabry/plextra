@@ -99,11 +99,24 @@ const put = (path, body) =>
 const state = {
   view: "dashboard",
   config: null,
+  providers: [],
   meta: { radarr: null, sonarr: null },
   logCursor: 0,
   editing: null,
   timer: null,
 };
+
+// These have a home of their own on the Source model; everything else a
+// provider declares is stored in source.options.
+const NAMED_SOURCE_FIELDS = new Set(["account", "list_url", "person", "period"]);
+
+const providerByKey = (key) => state.providers.find((p) => p.key === key) || null;
+
+function sourcesFor(providerKey, mediaType) {
+  const provider = providerByKey(providerKey);
+  if (!provider) return [];
+  return provider.sources.filter((s) => s.media.includes(mediaType));
+}
 
 /* -------------------------------------------------------------- auth flow */
 
@@ -121,7 +134,7 @@ async function boot() {
   $("login").classList.add("hidden");
   $("app").classList.remove("hidden");
   $("logout").classList.toggle("hidden", !status.auth_required);
-  await loadConfig();
+  await Promise.all([loadConfig(), loadProviders()]);
   switchView(state.view);
 }
 
@@ -178,6 +191,10 @@ async function loadConfig() {
   state.config = await api("/api/config");
 }
 
+async function loadProviders() {
+  state.providers = (await api("/api/providers")).providers || [];
+}
+
 /* -------------------------------------------------------------- dashboard */
 
 async function renderDashboard() {
@@ -215,12 +232,21 @@ async function renderDashboard() {
 
 function sourceLabel(job) {
   const source = job.source || {};
-  if (source.type === "list") return `list: ${source.list_url || "?"}`;
-  if (source.type === "person") return `person: ${source.person || "?"}`;
-  if (source.type === "watched" || source.type === "played") {
-    return `${source.type} (${source.period})`;
-  }
-  return source.type;
+  const provider = providerByKey(source.provider || "trakt");
+  const providerName = provider ? provider.name : source.provider || "?";
+  const type = (provider ? provider.sources.find((s) => s.key === source.type) : null);
+  const typeLabel = type ? type.label.toLowerCase() : source.type;
+
+  // Show the identifying detail too, so two lists from the same provider are
+  // told apart at a glance.
+  const detail =
+    source.list_url ||
+    source.person ||
+    (source.options && (source.options.url || source.options.list_id || source.options.chart)) ||
+    "";
+  return detail
+    ? `${providerName} · ${typeLabel}: ${detail}`
+    : `${providerName} · ${typeLabel}`;
 }
 
 function scheduleLabel(job) {
@@ -460,6 +486,10 @@ async function renderSettings() {
   $("trakt-client-secret").value = config.trakt.client_secret || "";
   renderTraktAccounts(config.trakt.accounts || []);
 
+  for (const entry of PROVIDER_CREDENTIALS) {
+    $(entry.field).value = entry.read(config) || "";
+  }
+
   for (const kind of ["radarr", "sonarr"]) {
     const section = config[kind];
     $(`${kind}-enabled`).checked = section.enabled;
@@ -652,36 +682,158 @@ $("save-password").addEventListener("click", async () => {
 
 /* ----------------------------------------------------------- list editor */
 
-const SOURCES_NEEDING_ACCOUNT = new Set(["watchlist", "collection", "recommended"]);
+function renderProviderChoices(selected) {
+  const media = $("f-media").value;
+  const options = state.providers
+    // Hide a provider that has nothing for this media type at all.
+    .filter((p) => p.media.includes(media))
+    .map((p) => ({
+      value: p.key,
+      label: p.configured ? p.name : `${p.name} — needs setup`,
+    }));
+  fillSelect($("f-provider"), options, selected || "trakt");
+  if (!$("f-provider").value && options.length) $("f-provider").selectedIndex = 0;
+}
+
+function renderSourceChoices(selected) {
+  const media = $("f-media").value;
+  const sources = sourcesFor($("f-provider").value, media);
+  fillSelect(
+    $("f-source-type"),
+    sources.map((s) => ({ value: s.key, label: s.label })),
+    selected
+  );
+  if (!$("f-source-type").value && sources.length) $("f-source-type").selectedIndex = 0;
+}
+
+/** Build the provider-specific inputs from the descriptor. */
+function renderSourceFields(job) {
+  const provider = providerByKey($("f-provider").value);
+  const source = provider
+    ? provider.sources.find((s) => s.key === $("f-source-type").value)
+    : null;
+  const container = $("source-fields");
+  container.replaceChildren();
+
+  const note = [];
+  if (provider && !provider.configured && provider.setup_hint) note.push(provider.setup_hint);
+  if (source && source.help) note.push(source.help);
+  $("provider-note").textContent = note.join(" ");
+
+  // Account picker, for providers that hold more than one.
+  const accounts = (provider && provider.accounts) || [];
+  const needsAccount = source && source.needs_account;
+  $("row-account").classList.toggle("hidden", accounts.length === 0 && !needsAccount);
+  if (!$("row-account").classList.contains("hidden")) {
+    fillSelect(
+      $("f-account"),
+      accounts.map((a) => ({ value: a, label: a })),
+      (job && job.source && job.source.account) || "",
+      needsAccount ? "— pick an account —" : "— none (public only) —"
+    );
+    // These sources only exist for a signed-in user, so preselect rather than
+    // letting the sync fail later with "needs a connected account".
+    if (needsAccount && !$("f-account").value && $("f-account").options.length > 1) {
+      $("f-account").selectedIndex = 1;
+    }
+  }
+
+  $("row-picker").classList.toggle("hidden", !(provider && provider.can_pick_lists));
+  $("list-picker").classList.add("hidden");
+
+  if (!source) return;
+  for (const fieldSpec of source.fields) {
+    container.append(buildSourceField(fieldSpec, job));
+  }
+}
+
+function buildSourceField(spec, job) {
+  const stored = readSourceValue(job, spec.key);
+  const value = stored || spec.default || "";
+
+  let input;
+  if (spec.kind === "select") {
+    input = el("select", { id: `sf-${spec.key}`, "data-source-key": spec.key });
+    for (const choice of spec.choices) {
+      const option = el("option", { value: choice.value }, choice.label);
+      if (String(choice.value) === String(value)) option.selected = true;
+      input.append(option);
+    }
+  } else {
+    input = el("input", {
+      type: "text",
+      id: `sf-${spec.key}`,
+      "data-source-key": spec.key,
+      placeholder: spec.placeholder || "",
+      value,
+    });
+  }
+
+  return el(
+    "div",
+    { class: "field-row" },
+    el(
+      "label",
+      {},
+      spec.label,
+      spec.help ? el("span", { class: "muted tiny" }, spec.help) : null,
+      input
+    )
+  );
+}
+
+function readSourceValue(job, key) {
+  if (!job || !job.source) return "";
+  if (NAMED_SOURCE_FIELDS.has(key)) return job.source[key] || "";
+  return (job.source.options || {})[key] || "";
+}
+
+function collectSourceFields() {
+  const source = {
+    provider: $("f-provider").value,
+    type: $("f-source-type").value,
+    account: $("row-account").classList.contains("hidden") ? "" : $("f-account").value,
+    options: {},
+  };
+  for (const input of $("source-fields").querySelectorAll("[data-source-key]")) {
+    const key = input.dataset.sourceKey;
+    const value = input.value.trim();
+    if (NAMED_SOURCE_FIELDS.has(key)) {
+      source[key] = value;
+    } else if (value) {
+      source.options[key] = value;
+    }
+  }
+  return source;
+}
 
 function updateEditorVisibility() {
-  const type = $("f-source-type").value;
   const media = $("f-media").value;
-  $("row-list-url").classList.toggle("hidden", type !== "list");
-  $("row-person").classList.toggle("hidden", type !== "person");
-  $("row-period").classList.toggle("hidden", type !== "watched" && type !== "played");
   $("row-networks").classList.toggle("hidden", media !== "show");
   $("id-hint").textContent = media === "movie" ? "TMDb" : "TVDb";
-  if (type !== "list") $("list-picker").classList.add("hidden");
 
   const schedule = $("f-sched-type").value;
   $("row-hours").classList.toggle("hidden", schedule !== "interval");
   $("row-cron").classList.toggle("hidden", schedule !== "cron");
-
-  // These sources only exist for an authenticated user, so preselect an account
-  // rather than letting the sync fail with "needs a connected Trakt account".
-  const account = $("f-account");
-  if (SOURCES_NEEDING_ACCOUNT.has(type) && !account.value && account.options.length > 1) {
-    account.selectedIndex = 1;
-  }
 }
 
-["f-source-type", "f-media", "f-sched-type"].forEach((id) =>
-  $(id).addEventListener("change", async () => {
-    updateEditorVisibility();
-    if (id === "f-media") await loadEditorOverrides();
-  })
-);
+$("f-media").addEventListener("change", async () => {
+  // Changing movies/shows can invalidate both the provider and the source, so
+  // rebuild the whole chain rather than leaving an impossible combination.
+  renderProviderChoices($("f-provider").value);
+  renderSourceChoices($("f-source-type").value);
+  renderSourceFields(null);
+  updateEditorVisibility();
+  await loadEditorOverrides();
+});
+
+$("f-provider").addEventListener("change", () => {
+  renderSourceChoices();
+  renderSourceFields(null);
+});
+
+$("f-source-type").addEventListener("change", () => renderSourceFields(null));
+$("f-sched-type").addEventListener("change", updateEditorVisibility);
 
 async function loadEditorOverrides(job) {
   const kind = $("f-media").value === "movie" ? "radarr" : "sonarr";
@@ -705,10 +857,9 @@ function openEditor(job) {
 
   $("f-name").value = job?.name || "";
   $("f-media").value = job?.media_type || "movie";
-  $("f-source-type").value = source.type || "watchlist";
-  $("f-list-url").value = source.list_url || "";
-  $("f-person").value = source.person || "";
-  $("f-period").value = source.period || "weekly";
+  renderProviderChoices(source.provider || "trakt");
+  renderSourceChoices(source.type || "");
+  renderSourceFields(job);
   $("f-limit").value = job?.limit ?? 0;
   $("f-sort").value = job?.sort || "none";
   $("f-sched-type").value = schedule.type || "interval";
@@ -731,12 +882,8 @@ function openEditor(job) {
   $("f-keywords").value = listToCsv(filters.blacklisted_title_keywords);
   $("f-ids").value = listToCsv(filters.blacklisted_ids);
 
-  const accounts = (state.config?.trakt?.accounts || []).map((name) => ({ value: name, label: name }));
-  fillSelect($("f-account"), accounts, source.account || "", "— none (public only) —");
-
   updateEditorVisibility();
   loadEditorOverrides(job);
-  $("list-picker").classList.add("hidden");
   $("editor").classList.remove("hidden");
 }
 
@@ -751,11 +898,16 @@ function closeEditor() {
 
 $("pick-list").addEventListener("click", async () => {
   const picker = $("list-picker");
+  const providerKey = $("f-provider").value;
+  const provider = providerByKey(providerKey);
   picker.classList.remove("hidden");
-  picker.replaceChildren(el("div", { class: "empty" }, "Loading your Trakt lists…"));
+  picker.replaceChildren(el("div", { class: "empty" }, `Loading your ${provider?.name} lists…`));
+
   try {
-    const account = $("f-account").value;
-    const payload = await api(`/api/trakt/lists?account=${encodeURIComponent(account)}`);
+    const account = $("row-account").classList.contains("hidden") ? "" : $("f-account").value;
+    const payload = await api(
+      `/api/providers/${providerKey}/lists?account=${encodeURIComponent(account)}`
+    );
     if (!payload.lists.length) {
       picker.replaceChildren(el("div", { class: "empty" }, "No lists found for that account."));
       return;
@@ -764,14 +916,21 @@ $("pick-list").addEventListener("click", async () => {
       el("button", {
         type: "button",
         onclick: () => {
-          $("f-list-url").value = item.url;
-          $("f-source-type").value = "list";
-          updateEditorVisibility();
+          // Jump to whichever source type actually takes a list reference.
+          const listSource = sourcesFor(providerKey, $("f-media").value)
+            .find((s) => s.fields.some((f) => f.key === "list_url"));
+          if (listSource) {
+            $("f-source-type").value = listSource.key;
+            renderSourceFields(null);
+          }
+          const input = $("sf-list_url");
+          if (input) input.value = item.url;
           picker.classList.add("hidden");
         },
       },
         el("strong", {}, item.name),
-        el("span", { class: "muted tiny" }, `  ${item.url} · ${item.item_count} items · ${item.owned ? "yours" : "liked"}`))
+        el("span", { class: "muted tiny" },
+          `  ${item.url} · ${item.item_count} items${item.owned ? "" : " · liked"}`))
     ));
   } catch (exc) {
     picker.replaceChildren(el("div", { class: "empty error" }, exc.message));
@@ -784,13 +943,7 @@ $("editor-save").addEventListener("click", async () => {
     name: $("f-name").value.trim() || "Untitled list",
     enabled: $("f-enabled").checked,
     media_type: $("f-media").value,
-    source: {
-      type: $("f-source-type").value,
-      account: $("f-account").value,
-      list_url: $("f-list-url").value.trim(),
-      person: $("f-person").value.trim(),
-      period: $("f-period").value,
-    },
+    source: collectSourceFields(),
     limit: parseInt($("f-limit").value, 10) || 0,
     sort: $("f-sort").value,
     filters: {
@@ -833,6 +986,39 @@ $("editor-save").addEventListener("click", async () => {
     toast(exc.message, "err");
   }
 });
+
+/* ------------------------------------------- provider credentials (settings) */
+
+const PROVIDER_CREDENTIALS = [
+  { key: "tmdb", field: "tmdb-api-key", body: (v) => ({ api_key: v }), read: (c) => c.tmdb.api_key },
+  { key: "mdblist", field: "mdblist-api-key", body: (v) => ({ api_key: v }), read: (c) => c.mdblist.api_key },
+  { key: "plex", field: "plex-token", body: (v) => ({ token: v }), read: (c) => c.plex.token },
+];
+
+for (const entry of PROVIDER_CREDENTIALS) {
+  $(`save-${entry.key}`).addEventListener("click", async () => {
+    try {
+      await put(`/api/config/${entry.key}`, entry.body($(entry.field).value.trim()));
+      await Promise.all([loadConfig(), loadProviders()]);
+      toast(`${providerByKey(entry.key)?.name || entry.key} settings saved.`, "ok");
+    } catch (exc) {
+      toast(exc.message, "err");
+    }
+  });
+
+  $(`test-${entry.key}`).addEventListener("click", async () => {
+    try {
+      // Save first, so Test checks what is in the box rather than what was
+      // saved last time.
+      await put(`/api/config/${entry.key}`, entry.body($(entry.field).value.trim()));
+      const result = await post(`/api/providers/${entry.key}/test`);
+      await loadProviders();
+      toast(`${result.provider} works.`, "ok");
+    } catch (exc) {
+      toast(exc.message, "err");
+    }
+  });
+}
 
 /* ------------------------------------------------------------------- init */
 

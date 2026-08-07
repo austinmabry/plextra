@@ -47,6 +47,33 @@ class SonarrClient(ArrClient):
     def supports_language_profiles(self) -> bool:
         return bool(self.language_profiles())
 
+    def resolve_tvdb_id(self, *, imdb_id: str = "", tmdb_id: int | None = None) -> int | None:
+        """Turn an IMDb or TMDb ID into the TVDb ID Sonarr keys series by.
+
+        Most non-Trakt providers hand out IMDb or TMDb IDs, and Sonarr's own
+        search already knows the mapping, so no extra API key is needed.
+        """
+        terms = []
+        if imdb_id:
+            terms.append(f"imdb:{imdb_id}")
+        if tmdb_id:
+            terms.append(f"tmdb:{tmdb_id}")
+
+        for term in terms:
+            response = self.request("GET", "api/v3/series/lookup", params={"term": term})
+            if response.status_code != 200:
+                continue
+            try:
+                payload = response.json()
+            except ValueError:
+                continue
+            if isinstance(payload, dict):
+                payload = [payload]
+            for entry in payload or []:
+                if isinstance(entry, dict) and entry.get("tvdbId"):
+                    return int(entry["tvdbId"])
+        return None
+
     def lookup_tvdb(self, tvdb_id: int) -> dict[str, Any] | None:
         response = self.request(
             "GET", "api/v3/series/lookup", params={"term": f"tvdb:{tvdb_id}"}

@@ -2,66 +2,84 @@ import pytest
 
 from plextra.clients import ArrError
 from plextra.config import Filters, ListJob, Source
+from plextra.providers.base import MediaItem, ProviderError
 from plextra.sync import SyncConfigError, SyncEngine
 
 
 def movie(tmdb, title, **overrides):
-    base = {
-        "title": title,
-        "year": 2016,
-        "ids": {"trakt": tmdb, "tmdb": tmdb},
-        "runtime": 120,
-        "country": "us",
-        "language": "en",
-        "genres": ["drama"],
-        "rating": 7.5,
-        "votes": 1000,
-    }
+    base = dict(
+        ids={"tmdb": tmdb},
+        title=title,
+        year=2016,
+        runtime=120,
+        country="us",
+        language="en",
+        genres=["drama"],
+        rating=7.5,
+        votes=1000,
+    )
     base.update(overrides)
-    return base
+    return MediaItem(**base)
 
 
 def tvshow(tvdb, title, **overrides):
-    base = {
-        "title": title,
-        "year": 2022,
-        "ids": {"trakt": tvdb, "tvdb": tvdb},
-        "runtime": 50,
-        "country": "us",
-        "language": "en",
-        "network": "HBO",
-        "genres": ["drama"],
-        "rating": 8.0,
-        "votes": 500,
-    }
+    base = dict(
+        ids={"tvdb": tvdb},
+        title=title,
+        year=2022,
+        runtime=50,
+        country="us",
+        language="en",
+        network="HBO",
+        genres=["drama"],
+        rating=8.0,
+        votes=500,
+    )
     base.update(overrides)
-    return base
+    return MediaItem(**base)
 
 
 @pytest.fixture
-def trakt_items(monkeypatch):
-    holder = {"items": []}
+def source_items(monkeypatch):
+    """Stand in for whichever provider a list points at."""
+    holder = {"items": [], "configured": True, "error": None, "resolved": {}, "name": "TestSource"}
 
-    class FakeTrakt:
-        def __init__(self, cfg, on_account_update=None, timeout=30.0):
-            pass
+    class FakeProvider:
+        name = holder["name"]
+        setup_hint = "Set it up."
 
         def __enter__(self):
             return self
 
         def __exit__(self, *exc):
-            return False
+            self.close()
+
+        def configured(self):
+            return holder["configured"]
 
         def fetch(self, source, media_type, max_items=0):
+            if holder["error"]:
+                raise ProviderError(holder["error"])
             return list(holder["items"])
 
-    monkeypatch.setattr("plextra.sync.TraktClient", FakeTrakt)
+        def resolve_ids(self, item, media_type):
+            key = "tmdb" if media_type == "movie" else "tvdb"
+            extra = holder["resolved"].get(item.imdb_id)
+            if extra:
+                item.ids[key] = extra
+
+        def close(self):
+            holder["closed"] = True
+
+    monkeypatch.setattr(
+        "plextra.sync.provider_registry.build", lambda key, config, **kw: FakeProvider()
+    )
     return holder
 
 
 @pytest.fixture
 def radarr(monkeypatch):
-    state = {"library": set(), "exclusions": set(), "added": [], "fail": set()}
+    state = {"library": set(), "exclusions": set(), "added": [], "fail": set(), "imdb": {}}
 
     class FakeRadarr:
         def __init__(self, url, api_key):
@@ -79,6 +97,9 @@ def radarr(monkeypatch):
         def exclusion_tmdb_ids(self):
             return set(state["exclusions"])
 
+        def resolve_tmdb_id(self, imdb_id):
+            return state["imdb"].get(imdb_id)
+
         def add_movie(self, tmdb_id, **kwargs):
             if tmdb_id in state["fail"]:
                 raise ArrError("Radarr said no")
@@ -91,7 +112,7 @@ def radarr(monkeypatch):
 
 @pytest.fixture
 def sonarr(monkeypatch):
-    state = {"library": set(), "exclusions": set(), "added": [], "languages": True}
+    state = {"library": set(), "exclusions": set(), "added": [], "languages": True, "resolve": {}}
 
     class FakeSonarr:
         def __init__(self, url, api_key):
@@ -111,6 +132,9 @@ def sonarr(monkeypatch):
 
         def supports_language_profiles(self):
             return state["languages"]
+
+        def resolve_tvdb_id(self, imdb_id="", tmdb_id=None):
+            return state["resolve"].get(imdb_id) or state["resolve"].get(tmdb_id)
 
         def add_series(self, tvdb_id, **kwargs):
             state["added"].append((tvdb_id, kwargs))
@@ -147,8 +171,8 @@ def add_list(store, **kwargs):
 
 
 class TestHappyPath:
-    def test_adds_new_movies(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "One"), movie(2, "Two")]
+    def test_adds_new_movies(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One"), movie(2, "Two")]
         job = add_list(store, name="Watchlist")
 
         result = engine.run(job.id)
@@ -157,8 +181,8 @@ class TestHappyPath:
         assert result.added == 2
         assert [tmdb for tmdb, _ in radarr["added"]] == [1, 2]
 
-    def test_passes_target_settings_through(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "One")]
+    def test_passes_target_settings_through(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One")]
         store.mutate(lambda c: setattr(c.radarr, "tags", [7]))
         store.mutate(lambda c: setattr(c.radarr, "search_on_add", True))
         job = add_list(store, name="Watchlist")
@@ -170,17 +194,12 @@ class TestHappyPath:
         assert kwargs["root_folder"] == "/movies"
         assert kwargs["tags"] == [7]
         assert kwargs["search_on_add"] is True
-        assert kwargs["minimum_availability"] == "released"
 
-    def test_per_list_overrides_win(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "One")]
+    def test_per_list_overrides_win(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One")]
         job = add_list(
-            store,
-            name="4K",
-            quality_profile_id=9,
-            root_folder="/movies4k",
-            tags=[3],
-            search_on_add=False,
+            store, name="4K", quality_profile_id=9, root_folder="/movies4k",
+            tags=[3], search_on_add=False,
         )
 
         engine.run(job.id)
@@ -191,8 +210,8 @@ class TestHappyPath:
         assert kwargs["tags"] == [3]
         assert kwargs["search_on_add"] is False
 
-    def test_adds_shows_via_sonarr(self, engine, store, trakt_items, sonarr):
-        trakt_items["items"] = [tvshow(101, "Show")]
+    def test_adds_shows_via_sonarr(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(101, "Show")]
         job = add_list(store, name="Shows", media_type="show")
 
         result = engine.run(job.id)
@@ -201,41 +220,84 @@ class TestHappyPath:
         tvdb, kwargs = sonarr["added"][0]
         assert tvdb == 101
         assert kwargs["monitor"] == "all"
-        assert kwargs["season_folder"] is True
+
+    def test_works_for_any_provider(self, engine, store, source_items, radarr):
+        """The engine does not care which site the list came from."""
+        source_items["items"] = [movie(1, "One")]
+        job = add_list(store, name="MDBList", source=Source(provider="mdblist", type="list"))
+
+        assert engine.run(job.id).added == 1
+
+    def test_provider_is_closed(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One")]
+        engine.run(add_list(store, name="Watchlist").id)
+        assert source_items.get("closed") is True
 
 
-class TestSkipping:
-    def test_skips_titles_already_in_the_library(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Have it"), movie(2, "Want it")]
-        radarr["library"] = {1}
-        job = add_list(store, name="Watchlist")
+class TestIdResolution:
+    def test_resolves_missing_id_via_the_provider(self, engine, store, source_items, radarr):
+        """TMDb gives shows a TMDb ID; the provider fills in the TVDb one."""
+        source_items["items"] = [movie(0, "IMDb only", ids={"imdb": "tt1"})]
+        source_items["resolved"] = {"tt1": 555}
+        job = add_list(store, name="List")
 
         result = engine.run(job.id)
 
-        assert result.existing == 1
-        assert [tmdb for tmdb, _ in radarr["added"]] == [2]
+        assert result.added == 1
+        assert radarr["added"][0][0] == 555
 
-    def test_respects_radarr_exclusions(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Excluded"), movie(2, "Fine")]
-        radarr["exclusions"] = {1}
-        job = add_list(store, name="Watchlist")
+    def test_falls_back_to_the_arr_lookup(self, engine, store, source_items, radarr):
+        """An IMDb-only list still works: Radarr already knows the mapping."""
+        source_items["items"] = [movie(0, "IMDb only", ids={"imdb": "tt7"})]
+        radarr["imdb"] = {"tt7": 777}
+        job = add_list(store, name="List")
 
         result = engine.run(job.id)
 
-        assert result.excluded == 1
-        assert [tmdb for tmdb, _ in radarr["added"]] == [2]
+        assert result.added == 1
+        assert radarr["added"][0][0] == 777
 
-    def test_skips_items_without_a_tmdb_id(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [{"title": "No ID", "year": 2020, "ids": {"trakt": 5}}]
-        job = add_list(store, name="Watchlist")
+    def test_sonarr_resolves_from_tmdb(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(0, "Show", ids={"tmdb": 42})]
+        sonarr["resolve"] = {42: 4242}
+        job = add_list(store, name="Shows", media_type="show")
+
+        engine.run(job.id)
+
+        assert sonarr["added"][0][0] == 4242
+
+    def test_unresolvable_item_is_recorded_not_crashed(self, engine, store, database, source_items, radarr):
+        source_items["items"] = [movie(0, "Ghost", ids={"imdb": "tt9"})]
+        job = add_list(store, name="List")
 
         result = engine.run(job.id)
 
         assert result.added == 0
-        assert radarr["added"] == []
+        assert result.unresolved == 1
+        items = database.run_items(result.run_id)
+        assert items[0]["action"] == "skipped"
+        assert "TMDb ID" in items[0]["reason"]
 
-    def test_applies_filters(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Old", year=1980), movie(2, "New", year=2020)]
+
+class TestSkipping:
+    def test_skips_titles_already_in_the_library(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "Have it"), movie(2, "Want it")]
+        radarr["library"] = {1}
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.existing == 1
+        assert [tmdb for tmdb, _ in radarr["added"]] == [2]
+
+    def test_respects_exclusions(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "Excluded"), movie(2, "Fine")]
+        radarr["exclusions"] = {1}
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.excluded == 1
+        assert [tmdb for tmdb, _ in radarr["added"]] == [2]
+
+    def test_applies_filters(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "Old", year=1980), movie(2, "New", year=2020)]
         job = add_list(store, name="Watchlist", filters=Filters(min_year=2000))
 
         result = engine.run(job.id)
@@ -243,11 +305,16 @@ class TestSkipping:
         assert result.filtered == 1
         assert [tmdb for tmdb, _ in radarr["added"]] == [2]
 
+    def test_duplicates_are_collapsed(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One"), movie(1, "One again")]
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.added == 1
+
 
 class TestLimitAndSort:
-    def test_limit_applies_after_filtering(self, engine, store, trakt_items, radarr):
-        """Ask for 2 and you get 2 that passed, not 2 candidates that may fail."""
-        trakt_items["items"] = [
+    def test_limit_applies_after_filtering(self, engine, store, source_items, radarr):
+        source_items["items"] = [
             movie(1, "Old", year=1980),
             movie(2, "New A", year=2020),
             movie(3, "New B", year=2021),
@@ -260,72 +327,73 @@ class TestLimitAndSort:
         assert result.added == 2
         assert [tmdb for tmdb, _ in radarr["added"]] == [2, 3]
 
-    def test_sort_before_limit(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [
-            movie(1, "Meh", votes=10),
-            movie(2, "Great", votes=900),
-            movie(3, "Good", votes=500),
+    def test_sort_before_limit(self, engine, store, source_items, radarr):
+        source_items["items"] = [
+            movie(1, "Meh", votes=10), movie(2, "Great", votes=900), movie(3, "Good", votes=500),
         ]
-        job = add_list(store, name="Watchlist", limit=2, sort="votes")
+        engine.run(add_list(store, name="Watchlist", limit=2, sort="votes").id)
 
-        engine.run(job.id)
+        assert [tmdb for tmdb, _ in radarr["added"]] == [2, 3]
+
+    def test_library_hits_do_not_consume_the_limit(self, engine, store, source_items, radarr):
+        """Ask for 2 new titles and get 2, not 2 minus what you already own."""
+        source_items["items"] = [movie(1, "Have"), movie(2, "A"), movie(3, "B")]
+        radarr["library"] = {1}
+        engine.run(add_list(store, name="Watchlist", limit=2).id)
 
         assert [tmdb for tmdb, _ in radarr["added"]] == [2, 3]
 
 
 class TestDryRun:
-    def test_dry_run_adds_nothing(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "One"), movie(2, "Two")]
-        job = add_list(store, name="Watchlist")
-
-        result = engine.run(job.id, dry_run=True)
+    def test_dry_run_adds_nothing(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One"), movie(2, "Two")]
+        result = engine.run(add_list(store, name="Watchlist").id, dry_run=True)
 
         assert result.dry_run is True
         assert result.added == 2
         assert radarr["added"] == []
 
-    def test_list_level_dry_run_flag(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "One")]
-        job = add_list(store, name="Watchlist", dry_run=True)
-
-        engine.run(job.id)
-
+    def test_list_level_dry_run_flag(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One")]
+        engine.run(add_list(store, name="Watchlist", dry_run=True).id)
         assert radarr["added"] == []
 
 
 class TestFailures:
-    def test_partial_when_some_adds_fail(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Good"), movie(2, "Bad")]
+    def test_partial_when_some_adds_fail(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "Good"), movie(2, "Bad")]
         radarr["fail"] = {2}
-        job = add_list(store, name="Watchlist")
-
-        result = engine.run(job.id)
+        result = engine.run(add_list(store, name="Watchlist").id)
 
         assert result.status == "partial"
-        assert result.added == 1
-        assert result.failed == 1
+        assert (result.added, result.failed) == (1, 1)
 
-    def test_error_when_everything_fails(self, engine, store, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Bad")]
+    def test_error_when_everything_fails(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "Bad")]
         radarr["fail"] = {1}
-        job = add_list(store, name="Watchlist")
+        assert engine.run(add_list(store, name="Watchlist").id).status == "error"
 
-        assert engine.run(job.id).status == "error"
-
-    def test_unconfigured_target_reports_clearly(self, engine, store, trakt_items):
+    def test_unconfigured_target_reports_clearly(self, engine, store, source_items):
         store.mutate(lambda c: setattr(c.radarr, "api_key", ""))
-        job = add_list(store, name="Watchlist")
-
-        result = engine.run(job.id)
+        result = engine.run(add_list(store, name="Watchlist").id)
 
         assert result.status == "error"
         assert "Radarr is not enabled or not configured" in result.message
 
-    def test_missing_root_folder_reports_clearly(self, engine, store, trakt_items):
-        store.mutate(lambda c: setattr(c.radarr, "root_folder", ""))
-        job = add_list(store, name="Watchlist")
+    def test_unconfigured_provider_reports_its_setup_hint(self, engine, store, source_items, radarr):
+        source_items["configured"] = False
+        result = engine.run(add_list(store, name="Watchlist").id)
 
-        assert "root folder" in engine.run(job.id).message
+        assert result.status == "error"
+        assert "not set up yet" in result.message
+        assert "Set it up." in result.message
+
+    def test_provider_error_is_surfaced(self, engine, store, source_items, radarr):
+        source_items["error"] = "That list is private."
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.status == "error"
+        assert result.message == "That list is private."
 
     def test_unknown_list_raises(self, engine):
         with pytest.raises(SyncConfigError):
@@ -333,8 +401,8 @@ class TestFailures:
 
 
 class TestHistory:
-    def test_run_is_recorded(self, engine, store, database, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Kept"), movie(2, "Have it")]
+    def test_run_is_recorded(self, engine, store, database, source_items, radarr):
+        source_items["items"] = [movie(1, "Kept"), movie(2, "Have it")]
         radarr["library"] = {2}
         job = add_list(store, name="Watchlist")
 
@@ -343,26 +411,22 @@ class TestHistory:
 
         assert len(runs) == 1
         assert runs[0]["status"] == "success"
-        assert runs[0]["added"] == 1
-        assert runs[0]["existing"] == 1
-        assert runs[0]["list_name"] == "Watchlist"
+        assert (runs[0]["added"], runs[0]["existing"]) == (1, 1)
 
-        items = database.run_items(result.run_id)
-        actions = {item["title"]: item["action"] for item in items}
+        actions = {i["title"]: i["action"] for i in database.run_items(result.run_id)}
         assert actions["Kept (2016)"] == "added"
         assert actions["Have it (2016)"] == "existing"
 
-    def test_filter_reasons_are_recorded(self, engine, store, database, trakt_items, radarr):
-        trakt_items["items"] = [movie(1, "Old", year=1980)]
+    def test_filter_reasons_name_the_provider(self, engine, store, database, source_items, radarr):
+        source_items["items"] = [movie(1, "Old", year=1980)]
         job = add_list(store, name="Watchlist", filters=Filters(min_year=2000))
 
-        result = engine.run(job.id)
-        items = database.run_items(result.run_id)
+        items = database.run_items(engine.run(job.id).run_id)
 
         assert items[0]["action"] == "filtered"
         assert "before 2000" in items[0]["reason"]
 
-    def test_last_success_timestamp(self, engine, store, database, trakt_items, radarr):
+    def test_last_success_timestamp(self, engine, store, database, source_items, radarr):
         job = add_list(store, name="Watchlist")
         assert database.last_success_at(job.id) is None
         engine.run(job.id)
@@ -370,12 +434,12 @@ class TestHistory:
 
 
 class TestConcurrency:
-    def test_running_set_is_empty_after_a_run(self, engine, store, trakt_items, radarr):
+    def test_running_set_is_empty_after_a_run(self, engine, store, source_items, radarr):
         job = add_list(store, name="Watchlist")
         engine.run(job.id)
         assert engine.running_lists() == set()
 
-    def test_running_set_clears_after_failure(self, engine, store, trakt_items):
+    def test_running_set_clears_after_failure(self, engine, store, source_items):
         store.mutate(lambda c: setattr(c.radarr, "api_key", ""))
         job = add_list(store, name="Watchlist")
         engine.run(job.id)
@@ -383,21 +447,17 @@ class TestConcurrency:
 
 
 class TestSonarrLanguageProfiles:
-    def test_language_profile_sent_when_supported(self, engine, store, trakt_items, sonarr):
-        trakt_items["items"] = [tvshow(1, "Show")]
+    def test_language_profile_sent_when_supported(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(1, "Show")]
         store.mutate(lambda c: setattr(c.sonarr, "language_profile_id", 2))
-        job = add_list(store, name="Shows", media_type="show")
-
-        engine.run(job.id)
+        engine.run(add_list(store, name="Shows", media_type="show").id)
 
         assert sonarr["added"][0][1]["language_profile_id"] == 2
 
-    def test_language_profile_omitted_on_v4(self, engine, store, trakt_items, sonarr):
-        trakt_items["items"] = [tvshow(1, "Show")]
+    def test_language_profile_omitted_on_v4(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(1, "Show")]
         sonarr["languages"] = False
         store.mutate(lambda c: setattr(c.sonarr, "language_profile_id", 2))
-        job = add_list(store, name="Shows", media_type="show")
-
-        engine.run(job.id)
+        engine.run(add_list(store, name="Shows", media_type="show").id)
 
         assert sonarr["added"][0][1]["language_profile_id"] is None

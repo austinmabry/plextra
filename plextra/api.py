@@ -15,18 +15,22 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, settings
+from . import __version__, providers, settings
 from .clients import ArrError, RadarrClient, SonarrClient, TraktClient, TraktError
 from .config import (
     AppConfig,
     ListJob,
+    MdblistConfig,
+    PlexConfig,
     RadarrConfig,
     SonarrConfig,
+    TmdbConfig,
     TraktAccount,
     hash_password,
     store,
     verify_password,
 )
+from .providers.base import ProviderError
 from .db import db
 from .logbuf import ring_handler
 from .scheduler import SyncScheduler
@@ -249,6 +253,72 @@ def update_sonarr(payload: SonarrConfig) -> dict[str, Any]:
     return _public_config(store.config)
 
 
+@app.put("/api/config/tmdb", dependencies=[Auth])
+def update_tmdb(payload: TmdbConfig) -> dict[str, Any]:
+    store.mutate(lambda config: setattr(config, "tmdb", payload))
+    return _public_config(store.config)
+
+
+@app.put("/api/config/mdblist", dependencies=[Auth])
+def update_mdblist(payload: MdblistConfig) -> dict[str, Any]:
+    store.mutate(lambda config: setattr(config, "mdblist", payload))
+    return _public_config(store.config)
+
+
+@app.put("/api/config/plex", dependencies=[Auth])
+def update_plex(payload: PlexConfig) -> dict[str, Any]:
+    store.mutate(lambda config: setattr(config, "plex", payload))
+    return _public_config(store.config)
+
+
+# --------------------------------------------------------------------------- #
+# Providers
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/providers", dependencies=[Auth])
+def list_providers() -> dict[str, Any]:
+    """Everything the list editor needs to render every source, dynamically."""
+    return {"providers": providers.describe_all(store.config)}
+
+
+@app.post("/api/providers/{key}/test", dependencies=[Auth])
+def test_provider(key: str) -> dict[str, Any]:
+    try:
+        provider = providers.build(key, store.config)
+    except ProviderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        with provider:
+            return {"ok": bool(provider.validate()), "provider": provider.name}
+    except ProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/providers/{key}/lists", dependencies=[Auth])
+def provider_lists(key: str, account: str = "") -> dict[str, Any]:
+    """The list picker, for providers that can enumerate a user's own lists."""
+    config = store.config
+    if key == "trakt":
+        username = account or config.trakt.default_account()
+        if not username:
+            raise HTTPException(status_code=400, detail="Connect a Trakt account first.")
+        try:
+            with TraktClient(config.trakt) as trakt:
+                return {"account": username, "lists": trakt.user_lists(username)}
+        except TraktError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if key == "mdblist":
+        try:
+            with providers.build("mdblist", config) as provider:
+                return {"account": "", "lists": provider.my_lists()}
+        except ProviderError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    raise HTTPException(status_code=400, detail=f"{key} cannot list your lists.")
+
+
 # --------------------------------------------------------------------------- #
 # Trakt
 # --------------------------------------------------------------------------- #
@@ -375,8 +445,34 @@ def list_jobs() -> dict[str, Any]:
     }
 
 
+def _validate_source(job: ListJob) -> None:
+    """Reject a list whose provider/source/media combination cannot work.
+
+    Better a 422 while editing than a failed run at 3am.
+    """
+    try:
+        provider = providers.build(job.source.provider, store.config)
+    except ProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    source = provider.source(job.source.type)
+    if source is None:
+        known = ", ".join(s.key for s in provider.source_types)
+        raise HTTPException(
+            status_code=422,
+            detail=f"{provider.name} has no source {job.source.type!r}. Known: {known}.",
+        )
+    if job.media_type not in source.media:
+        kind = "movies" if job.media_type == "movie" else "shows"
+        raise HTTPException(
+            status_code=422,
+            detail=f"{provider.name}'s {source.label!r} source does not support {kind}.",
+        )
+
+
 @app.post("/api/lists", dependencies=[Auth])
 def create_list(payload: ListJob) -> dict[str, Any]:
+    _validate_source(payload)
     store.mutate(lambda config: config.lists.append(payload))
     scheduler.reload()
     log.info("Created the list %r.", payload.name)
@@ -389,6 +485,7 @@ def update_list(list_id: str, payload: ListJob) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="No such list.")
 
     payload.id = list_id
+    _validate_source(payload)
 
     def apply(config: AppConfig) -> None:
         config.lists = [payload if job.id == list_id else job for job in config.lists]
@@ -464,6 +561,10 @@ def status() -> dict[str, Any]:
         },
         "radarr": {"enabled": config.radarr.enabled, "configured": config.radarr.configured},
         "sonarr": {"enabled": config.sonarr.enabled, "configured": config.sonarr.configured},
+        "providers": [
+            {"key": p.key, "name": p.name, "configured": p.configured()}
+            for p in providers.build_all(config)
+        ],
         "lists": {
             "total": len(config.lists),
             "enabled": sum(1 for job in config.lists if job.enabled),

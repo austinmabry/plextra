@@ -37,6 +37,29 @@ class RadarrClient(ArrClient):
         log.debug("Radarr exposed no exclusion list; continuing without one.")
         return set()
 
+    def resolve_tmdb_id(self, imdb_id: str) -> int | None:
+        """Ask Radarr to turn an IMDb ID into the TMDb ID it keys movies by.
+
+        Lists from IMDb, MDBList, StevenLu and plenty of custom feeds identify
+        titles by IMDb ID only. Radarr's own search already knows the mapping,
+        so use it rather than requiring another API key.
+        """
+        if not imdb_id:
+            return None
+        response = self.request("GET", "api/v3/movie/lookup", params={"term": f"imdb:{imdb_id}"})
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if isinstance(payload, dict):
+            payload = [payload]
+        for entry in payload or []:
+            if isinstance(entry, dict) and entry.get("tmdbId"):
+                return int(entry["tmdbId"])
+        return None
+
     def lookup_tmdb(self, tmdb_id: int) -> dict[str, Any] | None:
         """Ask Radarr to resolve a TMDb ID into a full movie record.
 

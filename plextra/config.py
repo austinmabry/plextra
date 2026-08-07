@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from . import settings
 
@@ -28,19 +28,6 @@ CONFIG_VERSION = 1
 
 MediaType = Literal["movie", "show"]
 
-SOURCE_TYPES = (
-    "watchlist",
-    "list",
-    "collection",
-    "recommended",
-    "trending",
-    "popular",
-    "anticipated",
-    "boxoffice",
-    "watched",
-    "played",
-    "person",
-)
 
 
 # --------------------------------------------------------------------------- #
@@ -167,24 +154,35 @@ class Filters(BaseModel):
 
 
 class Source(BaseModel):
-    type: str = "watchlist"
-    # Trakt username whose OAuth token authenticates the request.
-    account: str = ""
-    # For type == "list": full Trakt list URL, or "user/list-slug".
-    list_url: str = ""
-    # For type == "person": e.g. "Denis Villeneuve".
-    person: str = ""
-    # For type in ("watched", "played").
-    period: Literal["daily", "weekly", "monthly", "yearly", "all"] = "weekly"
+    """Where a list comes from.
 
-    @field_validator("type")
-    @classmethod
-    def _known_source(cls, value: str) -> str:
-        if value not in SOURCE_TYPES:
-            raise ValueError(
-                f"Unknown Trakt source {value!r}. Pick one of: {', '.join(SOURCE_TYPES)}."
-            )
-        return value
+    ``provider`` picks the site and ``type`` picks which of that site's lists.
+    The named fields below are the ones several providers share; anything
+    specific to one provider lives in ``options``, keyed by the field key the
+    provider declares. Read either through :meth:`get`.
+    """
+
+    provider: str = "trakt"
+    type: str = "watchlist"
+    # Account name, for providers that hold more than one (currently Trakt).
+    account: str = ""
+    # A list URL or "user/list-slug", for the many providers that take one.
+    list_url: str = ""
+    # For Trakt's "by person".
+    person: str = ""
+    # For Trakt's most watched/played.
+    period: Literal["daily", "weekly", "monthly", "yearly", "all"] = "weekly"
+    options: dict[str, str] = Field(default_factory=dict)
+
+    def get(self, key: str, default: str = "") -> str:
+        """Read a field, preferring the named ones over ``options``."""
+        value = getattr(self, key, None) if key in _NAMED_SOURCE_FIELDS else None
+        if isinstance(value, str) and value:
+            return value
+        return self.options.get(key, "") or (value if isinstance(value, str) else "") or default
+
+
+_NAMED_SOURCE_FIELDS = {"account", "list_url", "person", "period"}
 
 
 class Schedule(BaseModel):
@@ -213,6 +211,18 @@ class ListJob(BaseModel):
     tags: list[int] = Field(default_factory=list)
 
 
+class TmdbConfig(BaseModel):
+    api_key: str = ""
+
+
+class MdblistConfig(BaseModel):
+    api_key: str = ""
+
+
+class PlexConfig(BaseModel):
+    token: str = ""
+
+
 class AuthConfig(BaseModel):
     password_hash: str = ""
     secret_key: str = Field(default_factory=lambda: secrets.token_hex(32))
@@ -225,6 +235,9 @@ class AuthConfig(BaseModel):
 class AppConfig(BaseModel):
     version: int = CONFIG_VERSION
     trakt: TraktConfig = Field(default_factory=TraktConfig)
+    tmdb: TmdbConfig = Field(default_factory=TmdbConfig)
+    mdblist: MdblistConfig = Field(default_factory=MdblistConfig)
+    plex: PlexConfig = Field(default_factory=PlexConfig)
     radarr: RadarrConfig = Field(default_factory=RadarrConfig)
     sonarr: SonarrConfig = Field(default_factory=SonarrConfig)
     lists: list[ListJob] = Field(default_factory=list)

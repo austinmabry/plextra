@@ -1,11 +1,12 @@
 # Plextra
 
-Sync Trakt lists into Radarr and Sonarr, from a browser, in Docker.
+Sync lists from Trakt, TMDb, MDBList, IMDb, Plex and anywhere else into Radarr
+and Sonarr, from a browser, in Docker.
 
-Plextra watches the Trakt lists you care about — your watchlist, a custom list, a
-friend's list, trending, whatever — filters them however you like, and adds what
-is missing to Radarr or Sonarr on a schedule. Everything is configured through a
-web UI on port 9898; there is no config file to hand-edit and no CLI to cron.
+Plextra watches the lists you care about — wherever you keep them — filters them
+however you like, and adds what is missing to Radarr or Sonarr on a schedule.
+Everything is configured through a web UI on port 9898; there is no config file
+to hand-edit and no CLI to cron.
 
 ![The Lists view, showing three Trakt lists with their schedules and next run times](docs/screenshots/lists.png)
 
@@ -64,16 +65,27 @@ or the host's LAN IP — never `http://localhost:7878`.
 
 ## Setup
 
-### 1. Trakt
+### 1. A list provider (at least one)
 
-Create an app at <https://trakt.tv/oauth/applications>. Set the redirect URI to
-`urn:ietf:wg:oauth:2.0:oob`. Paste the client ID and secret into Settings → Trakt
-and press **Save**, then **Connect account**: Plextra shows an 8-character code
-to enter at trakt.tv/activate. Tokens are refreshed automatically from then on.
+Set up whichever you actually use. IMDb, StevenLu, another Radarr/Sonarr and
+custom URLs need no credentials at all, so you can skip this entirely.
 
-You only need a connected account for your own watchlist, collection and
-recommendations, and for private lists. Public lists and trending/popular work
-with just the client ID.
+**Trakt** — create an app at <https://trakt.tv/oauth/applications> with the
+redirect URI `urn:ietf:wg:oauth:2.0:oob`. Paste the client ID and secret into
+Settings → Trakt, press **Save**, then **Connect account**: Plextra shows an
+8-character code to enter at trakt.tv/activate, and refreshes tokens from then
+on. An account is only needed for your own watchlist, collection and
+recommendations, and for private lists.
+
+**TMDb** — a free v3 API key from
+<https://www.themoviedb.org/settings/api>, into Settings → Other list providers.
+
+**MDBList** — a free API key from <https://mdblist.com/preferences/>.
+
+**Plex** — in Plex Web, open any item, choose Get Info, then View XML, and copy
+the `X-Plex-Token` value out of the address bar.
+
+Each has a **Test** button that saves what is in the box and then checks it.
 
 ### 2. Radarr and Sonarr
 
@@ -86,9 +98,13 @@ running and hides the field when it does not apply.
 
 ### 3. Add a list
 
-Lists → **Add list**. Pick the media type, choose a Trakt source, set a schedule,
-and save. **Pick from my lists** browses the lists you own and have liked so you
-do not have to paste URLs.
+Lists → **Add list**. Pick the media type, choose a provider and one of its
+lists, set a schedule, and save. The form rebuilds itself for whichever provider
+you pick, and only offers combinations that can actually work — Trakt's box
+office disappears when the list targets shows, StevenLu disappears entirely.
+
+For Trakt and MDBList, **Pick from my lists** browses the lists you own and have
+liked so you do not have to paste URLs.
 
 ![The list editor, showing source, selection, schedule and filter options](docs/screenshots/list-editor.png)
 
@@ -96,18 +112,62 @@ Use **Dry run** first. It walks the whole pipeline and records exactly what it
 would add, without touching Radarr or Sonarr. History shows the per-title
 outcome, including why anything was filtered.
 
-## Sources
+## Providers
 
-| Source | Needs an account | Notes |
+Every provider is optional and independent — use the one service you already
+keep lists in and ignore the rest. Pick the provider in the list editor and the
+form rebuilds itself around it.
+
+| Provider | Needs | Lists it can pull |
 | --- | --- | --- |
-| Watchlist | yes | |
-| Custom list | only if private | Paste a URL or `user/list-slug` |
-| Collection | yes | |
-| Personal recommendations | yes | |
-| Trending / Popular / Anticipated | no | |
-| Box office | no | Movies only, 10 items |
-| Most watched / played | no | Daily, weekly, monthly, yearly, all time |
-| By person | no | Acting credits; self and narrator roles are dropped |
+| **Trakt** | Client ID + secret, and an account for private lists | Watchlist, custom list, collection, personal recommendations, trending, popular, anticipated, box office, most watched/played, by person |
+| **TMDb** | A free API key | Custom list, collection, company, keyword, person, popular, top rated, trending, upcoming, now playing, on the air, airing today |
+| **MDBList** | A free API key | Any list by URL/slug/ID, your own lists, your watchlist, the public top lists |
+| **IMDb** | Nothing | Any public `ls…` list, plus the Top 250, Most Popular, Top English and box office charts |
+| **Plex** | A Plex token | Your Plex Discover watchlist |
+| **StevenLu** | Nothing | The published popular-movies list (movies only) |
+| **Another Radarr / Sonarr** | Its URL + API key | Mirror a second instance's library |
+| **Custom list** | Nothing | Any URL returning JSON, RSS/Atom, or a list of IDs |
+
+### Custom lists
+
+The custom provider is deliberately forgiving, because "a URL that returns a
+list" has no single format. It understands:
+
+- Sonarr's custom-list JSON — `[{"title": …, "tvdbId": 1, "tmdbId": 2, "imdbId": "tt3"}]`
+- Radarr's / StevenLu's — `[{"title": …, "imdb_id": "tt3"}]`
+- MDBList's — `{"movies": [...], "shows": [...]}`
+- Wrapped arrays under `items`, `results`, `entries` or `data`
+- RSS and Atom feeds, taking IMDb IDs out of the link, guid or description
+- A bare list of IDs — `[603, 604]`, `["tt0133093"]`, or newline/comma separated
+
+Each entry only needs one of a TMDb, TVDb or IMDb ID; Plextra resolves the rest.
+
+### What is not here
+
+**Simkl, AniList and MyAnimeList** are missing on purpose. Radarr and Sonarr
+reach all three through `auth.servarr.com`, the Servarr project's own OAuth proxy
+using their registered application credentials. That is not mine to use, and
+doing it properly means registering separate OAuth applications with each
+service. If you want one of these, open an issue — the provider interface is the
+easy part, the OAuth registration is the blocker.
+
+CouchPotato is also absent; the project has been dead for years.
+
+## Mixing IDs across providers
+
+Radarr identifies movies by TMDb ID and Sonarr identifies series by TVDb ID, but
+most providers hand out something else — MDBList and IMDb lead with IMDb IDs,
+TMDb has no TVDb ID for shows. Plextra resolves the gap in three steps:
+
+1. Use the ID the provider gave, if it is already the right one.
+2. Ask the provider — TMDb, for instance, can turn its own show ID into a TVDb one.
+3. Ask Radarr or Sonarr, whose own search already knows the cross-mappings.
+
+Step 3 means an IMDb-only list works with no extra API key at all. Resolution
+happens lazily, only for titles that survive filtering and are about to be added,
+so a 5000-item list does not cost 5000 lookups. Anything that cannot be resolved
+is recorded in History as `no TMDb ID found` rather than silently vanishing.
 
 ## Filters
 
@@ -123,6 +183,16 @@ Every filter is per-list and every numeric filter is **off at 0**.
 | Blacklisted networks | Shows only, substring match |
 | Blacklisted title keywords | Substring match |
 | Blacklisted IDs | TMDb for movies, TVDb for shows |
+
+A filter can only judge metadata the provider actually sent, and providers differ
+enormously. Trakt and TMDb are rich; an IMDb list or a bare custom URL may give
+little more than an ID. Filtering an IMDb list by year or genre therefore rejects
+everything — the reason recorded in History names the provider
+(`no release year from IMDb`) so this is visible rather than mysterious. Use the
+limit instead, or pull the same list through MDBList, which does return metadata.
+
+TMDb's list endpoints carry no runtime, so runtime filters have nothing to judge
+there either. Fetching it would mean an extra request per title.
 
 Two intentional differences from traktarr:
 
@@ -189,8 +259,19 @@ PLEXTRA_CONFIG_DIR=./config .venv/bin/python -m plextra
 ```
 
 The test suite covers the filter rules, config load/upgrade, Trakt's several
-response shapes, the sync engine, and the Radarr/Sonarr clients against a stub
-*arr server that checks the actual add payloads.
+response shapes, every provider's payload conversion, the custom-list parser
+against each format it claims to support, the sync engine including ID
+resolution, and both the provider and Radarr/Sonarr HTTP clients against stub
+servers that assert the actual requests and add payloads.
+
+### Adding a provider
+
+`plextra/providers/` holds one module per source. A provider subclasses
+`Provider`, declares its `source_types` (which is what the web UI renders itself
+from — there is no front-end change to make), and implements `fetch()` returning
+`MediaItem` objects. If it can turn its own IDs into TMDb/TVDb ones, override
+`resolve_ids()`; otherwise Radarr and Sonarr's lookup handles it. Register the
+class in `providers/__init__.py`.
 
 ### Releasing
 

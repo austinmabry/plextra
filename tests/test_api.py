@@ -92,12 +92,133 @@ class TestConfigEndpoints:
         response = client.put("/api/config/radarr", json={"minimum_availability": "whenever"})
         assert response.status_code == 422
 
-    def test_unknown_trakt_source_rejected(self, client):
+    def test_unknown_source_rejected(self, client):
         response = client.post(
             "/api/lists", json={"name": "Bad", "source": {"type": "nonsense"}}
         )
         assert response.status_code == 422
-        assert "Unknown Trakt source" in response.text
+        assert "Trakt has no source 'nonsense'" in response.text
+
+    def test_unknown_provider_rejected(self, client):
+        response = client.post(
+            "/api/lists", json={"name": "Bad", "source": {"provider": "letterboxd"}}
+        )
+        assert response.status_code == 422
+        assert "Unknown list source" in response.text
+
+    def test_media_type_mismatch_rejected(self, client):
+        """Box office is movies only; catching it here beats failing at 3am."""
+        response = client.post(
+            "/api/lists",
+            json={"name": "Bad", "media_type": "show", "source": {"type": "boxoffice"}},
+        )
+        assert response.status_code == 422
+        assert "does not support shows" in response.text
+
+    def test_provider_credentials_round_trip(self, client):
+        assert client.put("/api/config/tmdb", json={"api_key": "tk"}).status_code == 200
+        assert client.put("/api/config/mdblist", json={"api_key": "mk"}).status_code == 200
+        assert client.put("/api/config/plex", json={"token": "pt"}).status_code == 200
+
+        config = client.get("/api/config").json()
+        assert config["tmdb"]["api_key"] == "tk"
+        assert config["mdblist"]["api_key"] == "mk"
+        assert config["plex"]["token"] == "pt"
+
+
+class TestProviders:
+    def test_every_provider_is_described(self, client):
+        payload = client.get("/api/providers").json()["providers"]
+        keys = {p["key"] for p in payload}
+        assert keys == {
+            "trakt", "tmdb", "mdblist", "imdb", "plex", "stevenlu", "arr", "custom",
+        }
+
+    def test_descriptor_carries_what_the_editor_needs(self, client):
+        payload = client.get("/api/providers").json()["providers"]
+        tmdb = next(p for p in payload if p["key"] == "tmdb")
+
+        assert tmdb["configured"] is False  # no API key yet
+        assert tmdb["setup_hint"]
+        collection = next(s for s in tmdb["sources"] if s["key"] == "collection")
+        assert collection["media"] == ["movie"]
+        assert collection["fields"][0]["key"] == "collection_id"
+
+    def test_keyless_providers_are_configured_out_of_the_box(self, client):
+        payload = {p["key"]: p for p in client.get("/api/providers").json()["providers"]}
+        for key in ("imdb", "stevenlu", "custom", "arr"):
+            assert payload[key]["configured"] is True, key
+
+    def test_status_reports_provider_readiness(self, client):
+        status = client.get("/api/status").json()
+        by_key = {p["key"]: p for p in status["providers"]}
+        assert by_key["trakt"]["configured"] is False
+        assert by_key["custom"]["configured"] is True
+
+        client.put("/api/config/tmdb", json={"api_key": "tk"})
+        status = client.get("/api/status").json()
+        assert {p["key"]: p for p in status["providers"]}["tmdb"]["configured"] is True
+
+    def test_unknown_provider_test_is_404(self, client):
+        assert client.post("/api/providers/nope/test").status_code == 404
+
+    def test_testing_an_unconfigured_provider_explains_itself(self, client):
+        response = client.post("/api/providers/tmdb/test")
+        assert response.status_code == 400
+        assert "TMDb API key" in response.json()["detail"]
+
+    def test_list_picker_rejects_providers_without_one(self, client):
+        response = client.get("/api/providers/imdb/lists")
+        assert response.status_code == 400
+        assert "cannot list your lists" in response.json()["detail"]
+
+
+class TestListsAcrossProviders:
+    def test_a_list_can_use_any_provider(self, client):
+        created = client.post(
+            "/api/lists",
+            json={
+                "name": "My MDBList",
+                "source": {"provider": "mdblist", "type": "list", "list_url": "someone/faves"},
+            },
+        ).json()
+        assert created["source"]["provider"] == "mdblist"
+
+    def test_provider_specific_options_are_stored(self, client):
+        created = client.post(
+            "/api/lists",
+            json={
+                "name": "Marvel",
+                "source": {
+                    "provider": "tmdb",
+                    "type": "company",
+                    "options": {"company_id": "420"},
+                },
+            },
+        ).json()
+        assert created["source"]["options"]["company_id"] == "420"
+
+    def test_custom_url_list(self, client):
+        created = client.post(
+            "/api/lists",
+            json={
+                "name": "My feed",
+                "media_type": "show",
+                "source": {
+                    "provider": "custom",
+                    "type": "url",
+                    "options": {"url": "https://example.com/list.json"},
+                },
+            },
+        ).json()
+        assert created["source"]["options"]["url"] == "https://example.com/list.json"
+
+    def test_existing_trakt_lists_still_default_to_trakt(self, client):
+        """A config written before providers existed must keep working."""
+        created = client.post(
+            "/api/lists", json={"name": "Old", "source": {"type": "watchlist"}}
+        ).json()
+        assert created["source"]["provider"] == "trakt"
 
 
 class TestLists:

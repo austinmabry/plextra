@@ -1,8 +1,8 @@
 services:
   plextra:
     image: ghcr.io/austinmabry/plextra:latest
-    # No release cut yet, or want to run your own changes? Comment out the
-    # image line above and uncomment this to build from the checkout instead.
+    # To run your own changes instead, comment out the image line above and
+    # uncomment this to build from the checkout.
     # build: .
     container_name: plextra
     restart: unless-stopped
@@ -11,17 +11,18 @@ services:
     volumes:
       - ./config:/config
     environment:
-      - TZ=America/Chicago
+      - TZ=Etc/UTC
       - PLEXTRA_LOG_LEVEL=INFO
-      # Seeds the web password on first boot only. Set one, or set it in the GUI.
+      # Seeds the web password on first boot only. Set one here, or in the GUI.
       # - PLEXTRA_PASSWORD=change-me
     # The image runs as uid/gid 1000. If ./config on the host is owned by a
     # different user, set that uid:gid here or Plextra cannot write its config.
+    # On Unraid, that means user: "99:100".
     # user: "1000:1000"
 
-# If Radarr/Sonarr run in their own compose stack, put Plextra on the same
+# If Radarr and Sonarr run in their own compose stack, put Plextra on the same
 # network and address them by container name (http://radarr:7878). Otherwise use
-# the host IP; "localhost" inside this container means the container itself.
+# the host's LAN IP -- "localhost" inside this container means the container.
 #
 # networks:
 #   default:

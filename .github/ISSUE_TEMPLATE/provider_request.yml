@@ -1,0 +1,65 @@
+name: Provider request
+description: Ask for support for another list site
+labels: [provider]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adding a provider needs no front-end work — the list editor renders
+        itself from each provider's own description. See
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) if you fancy sending a
+        pull request.
+
+        Note that Simkl, AniList and MyAnimeList are declined for a specific
+        reason: Radarr and Sonarr reach them through the Servarr project's own
+        OAuth credentials, which are not ours to use. They need separate OAuth
+        applications registered with each service.
+
+  - type: input
+    id: site
+    attributes:
+      label: Which site
+      placeholder: "Letterboxd"
+    validations:
+      required: true
+
+  - type: input
+    id: api
+    attributes:
+      label: API documentation
+      description: A link to its API docs, if it has any.
+
+  - type: textarea
+    id: lists
+    attributes:
+      label: Which lists should it pull
+      placeholder: "Watchlist, and any public list by URL"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth
+    attributes:
+      label: What does it need to authenticate
+      options:
+        - Nothing, the lists are public
+        - An API key
+        - OAuth
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ids
+    attributes:
+      label: Which IDs does it return
+      description: >
+        Radarr needs TMDb IDs and Sonarr needs TVDb IDs. Anything else has to be
+        resolved, which usually works but is worth knowing up front.
+      multiple: true
+      options:
+        - TMDb
+        - TVDb
+        - IMDb
+        - Something else
+        - Not sure

@@ -1,0 +1,66 @@
+name: Bug report
+description: Something is not working as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: open the **History** tab and find the run in question.
+        Every title has a recorded outcome and reason, which usually explains
+        what happened faster than the log does.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Plextra version
+      description: Shown under the logo in the sidebar, or from `/api/health`.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which list provider
+      options:
+        - Trakt
+        - TMDb
+        - MDBList
+        - IMDb
+        - Plex
+        - StevenLu
+        - Another Radarr / Sonarr
+        - Custom list
+        - Not provider-specific
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Radarr / Sonarr version
+      placeholder: "Radarr 5.2.6"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        From the Logs tab. Setting PLEXTRA_LOG_LEVEL=DEBUG records every
+        per-title decision. Please redact API keys and tokens.
+      render: text
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: How you run it
+      description: Docker Compose, Unraid, plain docker run, host OS, architecture.
+      placeholder: "Unraid 7.0, docker compose, amd64"

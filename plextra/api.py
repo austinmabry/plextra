@@ -127,8 +127,9 @@ async def lifespan(app: FastAPI):
     log.info("Plextra %s is listening on %s:%s", __version__, settings.HOST, settings.PORT)
     if not store.config.auth.enabled:
         log.warning(
-            "No web password is set. Anyone who can reach this port can read your "
-            "Radarr, Sonarr and Trakt credentials. Set one in Settings."
+            "No web password is set. Anyone who can reach this port can read the "
+            "credentials for Radarr, Sonarr and every list provider. Set one in "
+            "Settings."
         )
     try:
         yield

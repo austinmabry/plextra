@@ -131,11 +131,35 @@ lists in and ignore the rest.
 | **TMDb** | A free API key | Discover (incl. streaming services), custom list, collection, company, keyword, person, popular, top rated, trending, upcoming, now playing, on the air, airing today |
 | **MDBList** | A free API key | Any list by URL/slug/ID, your own lists, your watchlist, the public top lists |
 | **IMDb** | Nothing | Any public `ls…` list, plus the Top 250, Most Popular, Top English and box office charts |
+| **Letterboxd** | Nothing | Any public watchlist, list, or someone's watched films (films only) |
 | **Plex** | A Plex token | Your Plex Discover watchlist |
 | **StevenLu** | Nothing | The published popular-movies list (movies only) |
 | **Another Radarr / Sonarr** | Its URL + API key | Mirror a second instance's library |
 | **Paste or file** | Nothing | A list pasted into the box, or a CSV/JSON file in `/config` |
 | **Custom list** | Nothing | Any URL returning JSON, RSS/Atom, CSV, or a list of IDs |
+
+### Letterboxd
+
+Point it at a username and pick a watchlist, a list, or everything they have
+watched. Pasting a full URL into either field works — the username and list slug
+are pulled out of it. The profile or list has to be public.
+
+Letterboxd has no public API, and they return 403 for their own watchlist and
+list RSS feeds, so this reads the ordinary web pages. Two consequences worth
+knowing before you build a list around it:
+
+- **No metadata, so metadata filters cannot work.** A list page carries a title
+  and a year and nothing else. Filter a Letterboxd list by genre, runtime or
+  rating and everything drops out, because nothing can be judged. Use the limit
+  instead, or run the same list through MDBList, which returns full metadata.
+- **It is a scrape, so it can break.** If Letterboxd changes their markup, the
+  list will fail loudly with "No films found" rather than quietly syncing zero
+  titles. Parsing is deliberately confined to one pattern to keep that easy to fix.
+
+IDs are resolved exactly, but lazily. Each film's own page carries its TMDb ID,
+and Sidecarr fetches that page only for the titles that survive filtering and are
+not already in your library — so a 600-film watchlist is not 600 requests. Any
+title that misses falls back to Radarr's search.
 
 ### Discover, and "what's on Netflix"
 

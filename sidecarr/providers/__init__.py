@@ -17,6 +17,7 @@ from .base import (
     set_id,
 )
 from .imdb import ImdbProvider
+from .letterboxd import LetterboxdProvider
 from .mdblist import MdblistProvider
 from .plex import PlexProvider
 from .simple import CustomProvider, StevenLuProvider
@@ -30,6 +31,7 @@ PROVIDER_CLASSES: tuple[type[Provider], ...] = (
     TmdbProvider,
     MdblistProvider,
     ImdbProvider,
+    LetterboxdProvider,
     PlexProvider,
     StevenLuProvider,
     ArrInstanceProvider,

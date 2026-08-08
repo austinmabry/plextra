@@ -57,6 +57,10 @@ class MediaItem:
     votes: int | None = None
     network: str | None = None
     released: str | None = None
+    # The provider's own handle for this item - a slug, an internal ID - kept so
+    # :meth:`Provider.resolve_ids` can look the item up a second time without
+    # re-fetching the whole list. Never sent anywhere.
+    source_key: str = ""
 
     def target_id(self, media_type: str) -> int | None:
         """The ID Radarr/Sonarr needs, if this item already carries it."""

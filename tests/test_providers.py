@@ -24,7 +24,7 @@ class TestRegistry:
 
     def test_unknown_provider_names_the_known_ones(self, config):
         with pytest.raises(ProviderError, match="Unknown list source"):
-            providers.build("letterboxd", config)
+            providers.build("not-a-real-provider", config)
 
     def test_source_keys_are_unique_within_a_provider(self, config):
         for key in providers.PROVIDERS:

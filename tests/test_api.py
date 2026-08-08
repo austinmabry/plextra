@@ -237,7 +237,7 @@ class TestConfigEndpoints:
 
     def test_unknown_provider_rejected(self, client):
         response = client.post(
-            "/api/lists", json={"name": "Bad", "source": {"provider": "letterboxd"}}
+            "/api/lists", json={"name": "Bad", "source": {"provider": "not-a-real-provider"}}
         )
         assert response.status_code == 422
         assert "Unknown list source" in response.text
@@ -267,7 +267,8 @@ class TestProviders:
         payload = client.get("/api/providers").json()["providers"]
         keys = {p["key"] for p in payload}
         assert keys == {
-            "trakt", "tmdb", "mdblist", "imdb", "plex", "stevenlu", "arr", "text", "custom",
+            "trakt", "tmdb", "mdblist", "imdb", "letterboxd", "plex", "stevenlu",
+            "arr", "text", "custom",
         }
 
     def test_descriptor_carries_what_the_editor_needs(self, client):

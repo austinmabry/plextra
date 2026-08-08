@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Letterboxd provider**: any public watchlist, list, or a member's watched
+  films. No credential needed. Letterboxd has no public API and blocks their own
+  list RSS feeds, so this reads the web pages; a list page carries a title and a
+  year and nothing else, which means metadata filters have nothing to judge and a
+  markup change fails loudly instead of syncing nothing. Exact TMDb and IMDb IDs
+  come from each film's own page, fetched only for the titles about to be added
+  rather than for the whole list.
 - **TMDb Discover, including streaming services.** A new TMDb source for
   "everything on Netflix in my region", narrowed by genre, original language,
   availability type and minimum vote count, in any of seven orders. Service and

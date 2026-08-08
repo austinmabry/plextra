@@ -52,7 +52,11 @@ _CHART = SourceField(
 class ImdbProvider(HttpMixin, Provider):
     key = "imdb"
     name = "IMDb"
-    blurb = "Public IMDb lists and the IMDb charts. IDs and titles only, no metadata for filtering."
+    blurb = (
+        "Public IMDb lists and charts. Reads their web pages, which IMDb's "
+        "Conditions of Use prohibit - exporting a list to CSV and using Paste or "
+        "file is the sanctioned route. IDs and titles only, no metadata to filter on."
+    )
 
     source_types = (
         SourceType("list", "Public list", fields=(_LIST,)),

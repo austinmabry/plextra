@@ -69,7 +69,10 @@ _LIST_SLUG = SourceField(
 class LetterboxdProvider(HttpMixin, Provider):
     key = "letterboxd"
     name = "Letterboxd"
-    blurb = "Watchlists, lists and watched films. Titles and years only, no metadata to filter on."
+    blurb = (
+        "Watchlists, lists and watched films. Reads their web pages, which their "
+        "terms prohibit - their data export via Paste or file is the sanctioned route."
+    )
 
     source_types = (
         SourceType(
@@ -77,7 +80,11 @@ class LetterboxdProvider(HttpMixin, Provider):
             "Someone's watchlist",
             media=("movie",),
             fields=(_USER,),
-            help="The profile has to be public.",
+            help=(
+                "The profile has to be public. Letterboxd's terms forbid automated "
+                "access; Settings -> Import & Export on letterboxd.com gives you the "
+                "same data as a CSV, which the Paste or file source reads."
+            ),
         ),
         SourceType(
             "list",

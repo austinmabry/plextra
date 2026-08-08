@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **TMDb attribution**, as their API terms require, in the README and on the
+  Settings screen.
+- **A Data sources section** in the README saying, per provider, whether it uses
+  a published API or reads web pages, and quoting the IMDb and Letterboxd terms
+  that forbid the latter. Both providers now say so in the list editor too, and
+  point at each service's official CSV export as the sanctioned route.
+- **A Legal section**: Sidecarr downloads nothing and touches no indexer, does
+  not condone copyright infringement, and is not affiliated with any of the
+  services it reads.
+
 ### Fixed
 
 - **A 500 from `movie/lookup/tmdb` no longer gives up on a title that the IMDb

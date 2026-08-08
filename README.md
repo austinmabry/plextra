@@ -507,6 +507,75 @@ publish.
 which is UTC unless you say otherwise. An invalid expression is logged at startup
 and the list is not scheduled.
 
+## Data sources
+
+Sidecarr reads from other people's services. Which one you use determines whether
+you are using a published interface or reading pages that were not meant for a
+program, so it is worth knowing which is which.
+
+| Provider | How it is reached |
+| --- | --- |
+| **Trakt** | Official API, with an application you register yourself |
+| **TMDb** | Official API, with a key you obtain yourself |
+| **MDBList** | Official API, with a key you obtain yourself |
+| **Plex** | Plex's own endpoint, using your token, for your own account's data |
+| **StevenLu** | A JSON file published for exactly this purpose |
+| **Another Radarr / Sonarr** | Your own instance's API, with your own key |
+| **Paste or file** | Nothing is fetched — you supply the data |
+| **Custom list** | Whatever URL you point it at, which makes its terms yours to check |
+| **IMDb** | ⚠️ Reads public web pages. IMDb's Conditions of Use prohibit this |
+| **Letterboxd** | ⚠️ Reads public web pages. Letterboxd's Terms of Use prohibit this |
+
+### About the two marked ⚠️
+
+Neither IMDb nor Letterboxd offers a usable public list API, so those providers
+read the ordinary web pages. Both services' terms forbid that in plain language.
+
+IMDb's Conditions of Use:
+
+> **Robots and Screen Scraping:** You may not use data mining, robots, screen
+> scraping, or similar data gathering and extraction tools on this site, except
+> with our express written consent.
+
+Letterboxd's Terms of Use:
+
+> Except as explicitly authorized in these Terms, you must not employ any robot,
+> spider, scraper, deep-link, or other automated data gathering or extraction
+> tool, program, or algorithm to access, acquire, copy, or monitor any portion of
+> the Service.
+
+These are contract terms rather than criminal statutes, and the realistic
+consequence is that the service blocks you. But it is their call, not ours, and
+you should decide with your eyes open.
+
+**There is a clean alternative for both.** Each service publishes an official
+export of your own data, through the interface they provide:
+
+- **Letterboxd** — Settings → Import & Export → Export your data
+- **IMDb** — any list page → Export
+
+Feed the resulting CSV to the **Paste or file** provider. Nothing is scraped, no
+terms are strained, and the export carries more metadata than the pages do.
+
+## Legal
+
+Sidecarr adds titles to Radarr and Sonarr. It does not download anything, does
+not connect to any indexer or tracker, and has no knowledge of where a file
+eventually comes from — that is entirely between you, your Radarr/Sonarr
+configuration, and whatever sources you have set up there.
+
+**This project does not condone or encourage copyright infringement.** Adding a
+title to a library is not the same as obtaining it, and you are responsible for
+ensuring that whatever you do download is lawful where you live — content you own,
+public domain works, or material you are licensed to access. Do not use this
+software to acquire copyrighted material you have no right to.
+
+Sidecarr is not affiliated with, endorsed by, or connected to Trakt, TMDb,
+MDBList, IMDb, Letterboxd, Plex, Radarr, Sonarr, or the Servarr project. All
+trademarks belong to their respective owners.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).

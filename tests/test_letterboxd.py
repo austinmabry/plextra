@@ -239,6 +239,13 @@ class TestRegistration:
     def test_it_needs_no_credentials(self):
         assert providers.build("letterboxd", AppConfig()).configured() is True
 
-    def test_the_blurb_warns_about_missing_metadata(self):
+    def test_the_blurb_warns_that_the_terms_forbid_this(self):
+        """Someone picking this source should not have to read the README first."""
         blurb = providers.build("letterboxd", AppConfig()).blurb.lower()
-        assert "no metadata" in blurb
+        assert "terms prohibit" in blurb
+        assert "paste or file" in blurb
+
+    def test_the_sanctioned_route_is_named_in_the_editor(self):
+        described = providers.build("letterboxd", AppConfig()).describe()
+        watchlist = next(s for s in described["sources"] if s["key"] == "watchlist")
+        assert "Import & Export" in watchlist["help"]

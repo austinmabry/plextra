@@ -86,6 +86,8 @@ def radarr(monkeypatch):
         "added": [],
         "fail": set(),
         "imdb": {},
+        # Title searches Radarr can answer, keyed by (title, year).
+        "by_title": {},
         # TMDb IDs Radarr's metadata server cannot serve.
         "unresolvable": set(),
         "bulk_calls": [],
@@ -114,6 +116,9 @@ def radarr(monkeypatch):
 
         def resolve_tmdb_id(self, imdb_id):
             return state["imdb"].get(imdb_id)
+
+        def resolve_by_title(self, title, year=None):
+            return state["by_title"].get((title, year))
 
         def resolve_for_add(self, tmdb_id, imdb_id=""):
             if tmdb_id in state["unresolvable"]:
@@ -164,6 +169,7 @@ def sonarr(monkeypatch):
         "added": [],
         "languages": True,
         "resolve": {},
+        "by_title": {},
         "unresolvable": set(),
         "fail": set(),
         "bulk_calls": [],
@@ -203,6 +209,9 @@ def sonarr(monkeypatch):
 
         def resolve_tvdb_id(self, imdb_id="", tmdb_id=None):
             return state["resolve"].get(imdb_id) or state["resolve"].get(tmdb_id)
+
+        def resolve_by_title(self, title, year=None):
+            return state["by_title"].get((title, year))
 
         @staticmethod
         def series_payload(record, **kwargs):
@@ -426,6 +435,47 @@ class TestIdResolution:
 
         assert result.added == 1
         assert radarr["added"][0][0] == 777
+
+    def test_a_title_only_item_resolves_by_searching(self, engine, store, source_items, radarr):
+        """A Letterboxd list or CSV export carries no ID at all."""
+        source_items["items"] = [movie(0, "Heat", ids={}, year=1995)]
+        radarr["by_title"] = {("Heat", 1995): 949}
+        job = add_list(store, name="List")
+
+        result = engine.run(job.id)
+
+        assert result.added == 1
+        assert radarr["added"][0][0] == 949
+
+    def test_the_title_search_is_the_last_resort_not_the_first(
+        self, engine, store, source_items, radarr
+    ):
+        """An ID that works must never be second-guessed by a title search."""
+        source_items["items"] = [movie(0, "Heat", ids={"imdb": "tt7"}, year=1995)]
+        radarr["imdb"] = {"tt7": 777}
+        radarr["by_title"] = {("Heat", 1995): 999}
+        job = add_list(store, name="List")
+
+        engine.run(job.id)
+
+        assert radarr["added"][0][0] == 777
+
+    def test_a_title_with_no_match_stays_unresolved(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(0, "Obscure thing", ids={}, year=1995)]
+        job = add_list(store, name="List")
+
+        result = engine.run(job.id)
+
+        assert (result.added, result.unresolved) == (0, 1)
+
+    def test_shows_resolve_by_title_too(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(0, "Severance", ids={}, year=2022)]
+        sonarr["by_title"] = {("Severance", 2022): 371980}
+        job = add_list(store, name="Shows", media_type="show")
+
+        engine.run(job.id)
+
+        assert sonarr["added"][0][0] == 371980
 
     def test_sonarr_resolves_from_tmdb(self, engine, store, source_items, sonarr):
         source_items["items"] = [tvshow(0, "Show", ids={"tmdb": 42})]

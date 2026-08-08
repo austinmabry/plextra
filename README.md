@@ -134,7 +134,29 @@ lists in and ignore the rest.
 | **Plex** | A Plex token | Your Plex Discover watchlist |
 | **StevenLu** | Nothing | The published popular-movies list (movies only) |
 | **Another Radarr / Sonarr** | Its URL + API key | Mirror a second instance's library |
-| **Custom list** | Nothing | Any URL returning JSON, RSS/Atom, or a list of IDs |
+| **Paste or file** | Nothing | A list pasted into the box, or a CSV/JSON file in `/config` |
+| **Custom list** | Nothing | Any URL returning JSON, RSS/Atom, CSV, or a list of IDs |
+
+### Paste or file
+
+For the services with no usable list API, an official export is the clean way in.
+Letterboxd and IMDb both publish one, and this provider reads them as they come:
+
+- **Letterboxd** — Settings → Import & Export → Export your data. The ZIP holds
+  `watchlist.csv`, `watched.csv` and one CSV per list.
+- **IMDb** — any list page → Export. Your ratings export works too.
+
+Paste the file's contents, or drop it in the config volume and point the file
+source at it. A file is re-read on every run, so anything another tool keeps
+updated stays in sync.
+
+Letterboxd's export carries no IDs at all — only a name and a year — so those
+rows are matched by asking Radarr or Sonarr to search the title. That is a guess
+in a way an ID is not, so the match is deliberately strict: the year has to agree
+exactly, or with no year the title has to be exact. Anything less is reported as
+unresolved rather than risking the wrong film. IMDb's export includes the IMDb ID
+and real metadata, so it needs no guessing and its rows can be filtered on rating,
+runtime and genre.
 
 ### Custom lists
 
@@ -146,9 +168,12 @@ list" has no single format. It understands:
 - MDBList's — `{"movies": [...], "shows": [...]}`
 - Wrapped arrays under `items`, `results`, `entries` or `data`
 - RSS and Atom feeds, taking IMDb IDs from the link, guid or description
+- CSV or TSV with a header row, including the Letterboxd and IMDb exports
 - A bare list of IDs — `[603, 604]`, `["tt0133093"]`, or newline/comma separated
 
 Each entry needs only one of a TMDb, TVDb or IMDb ID; Sidecarr resolves the rest.
+A CSV export is the exception: it may carry only a title and year, which is
+resolved by search as described above.
 
 ### Not included
 

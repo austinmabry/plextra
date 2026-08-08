@@ -10,11 +10,14 @@ produce into :class:`MediaItem` objects:
 * ``[{"id": 1, "title": ...}]`` - a bare TMDb-style dump
 * ``[603, 604]`` or ``["tt0133093"]`` - just IDs
 * ``{"movies": [...], "shows": [...]}`` - MDBList
-* RSS/Atom XML - IMDb and Trakt list feeds, Plex RSS
+* RSS/Atom XML - IMDb and Trakt list feeds, Plex RSS, Letterboxd feeds
+* CSV with a header row - the official Letterboxd and IMDb exports
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from typing import Any
@@ -35,37 +38,115 @@ ID_ALIASES = {
 TITLE_KEYS = ("title", "name", "original_title", "original_name", "movietitle")
 YEAR_KEYS = ("year", "release_year", "releaseyear", "released", "release_date", "first_air_date")
 
+# CSV header spellings, mapped onto the keys _item already understands. Covers
+# Letterboxd's export (Date, Name, Year, Letterboxd URI) and IMDb's (Const,
+# Title, Year, Genres, Runtime (mins), IMDb Rating, Num Votes, URL).
+CSV_HEADERS = {
+    "const": "imdb_id",
+    "imdb id": "imdb_id",
+    "imdb": "imdb_id",
+    "tmdb id": "tmdb_id",
+    "tvdb id": "tvdb_id",
+    "name": "title",
+    "film": "title",
+    "movie": "title",
+    "original title": "original_title",
+    "release year": "year",
+    "num votes": "votes",
+    "imdb rating": "rating",
+    "your rating": "",  # a personal score is not the title's rating
+    "average rating": "rating",
+    "runtime (mins)": "runtime",
+    "runtime (minutes)": "runtime",
+    "letterboxd uri": "url",
+    "uri": "url",
+    "title type": "",  # would otherwise read as the title
+    "description": "",
+}
 
-def parse_any(payload: Any, media_type: str, *, id_hint: str = "") -> list[MediaItem]:
+
+def parse_any(
+    payload: Any,
+    media_type: str,
+    *,
+    id_hint: str = "",
+    allow_title_only: bool = False,
+) -> list[MediaItem]:
     """Turn whatever a custom URL returned into items.
 
     ``id_hint`` says how to read a bare number - a plain list of integers is
     ambiguous, and only the caller knows whether the URL serves movies or shows.
+
+    ``allow_title_only`` keeps entries that carry a title and no ID, for sources
+    that simply do not publish IDs. Those are resolved later by asking Radarr or
+    Sonarr to search the title, which is a guess, so it stays opt-in rather than
+    letting every stray RSS entry become a search. A CSV export turns it on by
+    itself: naming a title column is explicit enough to trust.
     """
+    from_csv = False
     if isinstance(payload, str):
-        payload = _decode(payload)
+        payload, from_csv = _decode(payload)
 
     entries = _entries(payload, media_type)
-    items = [_item(entry, media_type, id_hint) for entry in entries]
+    title_only = allow_title_only or from_csv
+    items = [_item(entry, media_type, id_hint, title_only) for entry in entries]
     return [item for item in items if item is not None]
 
 
-def _decode(text: str) -> Any:
-    text = text.strip()
+def _decode(text: str) -> tuple[Any, bool]:
+    """Decode a text payload, and say whether it was a CSV export."""
+    # A byte-order mark survives a copy-paste out of a downloaded export, and it
+    # is not whitespace, so str.strip leaves it glued to the first header name.
+    text = text.lstrip("﻿").strip()
     if not text:
-        return []
+        return [], False
     if text[0] in "[{":
         try:
-            return json.loads(text)
+            return json.loads(text), False
         except ValueError:
             pass
     if text.lstrip().startswith("<"):
-        return _parse_xml(text)
+        return _parse_xml(text), False
+    rows = _parse_csv(text)
+    if rows is not None:
+        return rows, True
     # A plain newline- or comma-separated list of IDs.
     tokens = [t.strip() for t in re.split(r"[\s,]+", text) if t.strip()]
     if tokens:
-        return tokens
-    raise ProviderError("That URL did not return JSON, XML or a list of IDs.")
+        return tokens, False
+    raise ProviderError("That URL did not return JSON, XML, CSV or a list of IDs.")
+
+
+def _parse_csv(text: str) -> list[dict[str, Any]] | None:
+    """Parse a CSV export, or return None if this is not one.
+
+    Requires a header row naming at least a title or an ID column, so a bare
+    comma-separated list of IDs is not mistaken for a one-row CSV.
+    """
+    if "\n" not in text.strip():
+        return None
+
+    first = text.strip().splitlines()[0]
+    delimiter = "\t" if first.count("\t") > first.count(",") else ","
+    header = {h.strip().strip('"').lower() for h in first.split(delimiter)}
+    known = set(CSV_HEADERS) | set(TITLE_KEYS) | {"year"}
+    known |= {alias for aliases in ID_ALIASES.values() for alias in aliases}
+    if not header & known:
+        return None
+
+    rows: list[dict[str, Any]] = []
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    for raw in reader:
+        row: dict[str, Any] = {}
+        for key, value in raw.items():
+            if key is None or value in (None, ""):
+                continue
+            canonical = CSV_HEADERS.get(key.strip().lower(), key.strip().lower())
+            if canonical and canonical not in row:
+                row[canonical] = value
+        if row:
+            rows.append(row)
+    return rows
 
 
 def _entries(payload: Any, media_type: str) -> list[Any]:
@@ -94,7 +175,9 @@ def _any_id(entry: dict[str, Any]) -> bool:
     return any(alias in lowered for aliases in ID_ALIASES.values() for alias in aliases)
 
 
-def _item(entry: Any, media_type: str, id_hint: str) -> MediaItem | None:
+def _item(
+    entry: Any, media_type: str, id_hint: str, allow_title_only: bool = False
+) -> MediaItem | None:
     if isinstance(entry, (int, float)):
         ids: dict[str, Any] = {}
         set_id(ids, id_hint or ("tmdb" if media_type == "movie" else "tvdb"), int(entry))
@@ -133,14 +216,16 @@ def _item(entry: Any, media_type: str, id_hint: str) -> MediaItem | None:
                 set_id(ids, "imdb", match.group(0))
                 break
 
-    if not ids:
-        return None
-
     title = ""
     for key in TITLE_KEYS:
         if lowered.get(key):
             title = str(lowered[key])
             break
+
+    # No ID at all is only usable when the caller has said a title is enough,
+    # because resolving it means asking Radarr or Sonarr to search for it.
+    if not ids and not (allow_title_only and len(title.strip()) > 1):
+        return None
 
     year = None
     for key in YEAR_KEYS:

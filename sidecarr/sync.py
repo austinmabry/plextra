@@ -375,13 +375,24 @@ class SyncEngine:
         try:
             if media == "movie":
                 if item.imdb_id:
-                    return arr.resolve_tmdb_id(item.imdb_id)
+                    ident = arr.resolve_tmdb_id(item.imdb_id)
             else:
-                return arr.resolve_tvdb_id(
+                ident = arr.resolve_tvdb_id(
                     imdb_id=item.imdb_id or "", tmdb_id=item.numeric_id("tmdb")
                 )
+            if ident is not None:
+                return ident
         except ArrError as exc:
             log.debug("Lookup failed for %s: %s", item.label, exc)
+
+        # 3. The title, for sources that carry no ID at all - a Letterboxd list
+        #    or a CSV export gives only a name and a year. Strict matching lives
+        #    in the client, so a near miss stays unresolved.
+        if item.title:
+            try:
+                return arr.resolve_by_title(item.title, item.year)
+            except ArrError as exc:
+                log.debug("Title search failed for %s: %s", item.label, exc)
         return None
 
     def _add_all(

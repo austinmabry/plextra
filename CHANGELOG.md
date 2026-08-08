@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Paste or file provider.** A list pasted into the editor, or a CSV/JSON file
+  in the config volume, with no API involved. Reads the official Letterboxd and
+  IMDb exports as they come, which matters because neither service has a usable
+  list API. A file is re-read on every run, so one another tool maintains stays
+  in sync. Paths outside `/config` are refused.
+- **CSV and TSV parsing** for every source that takes a payload, so the custom
+  URL provider handles a CSV endpoint too. Column names are matched loosely
+  across the Letterboxd and IMDb spellings.
+- **Resolution by title.** Sources that publish no IDs - a Letterboxd export
+  gives only a name and a year - are now matched by asking Radarr or Sonarr to
+  search, as a last resort after every ID route has failed. Kept strict on
+  purpose: the year must agree exactly, or with no year the title must be exact.
+  A near miss is reported as unresolved rather than adding the wrong title.
+
 ### Fixed
 
 - **Upgrading to 0.3.0 broke every button in the UI** until the browser was

@@ -267,7 +267,7 @@ class TestProviders:
         payload = client.get("/api/providers").json()["providers"]
         keys = {p["key"] for p in payload}
         assert keys == {
-            "trakt", "tmdb", "mdblist", "imdb", "plex", "stevenlu", "arr", "custom",
+            "trakt", "tmdb", "mdblist", "imdb", "plex", "stevenlu", "arr", "text", "custom",
         }
 
     def test_descriptor_carries_what_the_editor_needs(self, client):

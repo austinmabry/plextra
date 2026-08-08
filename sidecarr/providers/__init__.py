@@ -20,6 +20,7 @@ from .imdb import ImdbProvider
 from .mdblist import MdblistProvider
 from .plex import PlexProvider
 from .simple import CustomProvider, StevenLuProvider
+from .textlist import TextListProvider
 from .tmdb import TmdbProvider
 from .trakt import TraktProvider
 
@@ -32,6 +33,7 @@ PROVIDER_CLASSES: tuple[type[Provider], ...] = (
     PlexProvider,
     StevenLuProvider,
     ArrInstanceProvider,
+    TextListProvider,
     CustomProvider,
 )
 

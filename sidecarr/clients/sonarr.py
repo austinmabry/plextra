@@ -10,6 +10,13 @@ from .arr import ArrClient, ArrError, ArrUnknownIdError
 log = logging.getLogger(__name__)
 
 
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 class SonarrClient(ArrClient):
     service = "Sonarr"
 
@@ -90,6 +97,46 @@ class SonarrClient(ArrClient):
             for entry in payload or []:
                 if isinstance(entry, dict) and entry.get("tvdbId"):
                     return int(entry["tvdbId"])
+        return None
+
+    def resolve_by_title(self, title: str, year: int | None = None) -> int | None:
+        """Last resort: find a TVDb ID from a title, the way the Add Series box does.
+
+        Held to the same bar as Radarr's equivalent - an exact year match, or an
+        exact title match when the source gave no year - because a search result
+        is a guess and the wrong series is worse than none.
+        """
+        title = (title or "").strip()
+        if not title:
+            return None
+        try:
+            response = self.request("GET", "api/v3/series/lookup", params={"term": title})
+        except ArrError as exc:
+            log.debug("Sonarr title search for %r failed: %s", title, exc)
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if isinstance(payload, dict):
+            payload = [payload]
+
+        wanted = title.casefold()
+        for entry in payload or []:
+            if not isinstance(entry, dict) or not entry.get("tvdbId"):
+                continue
+            if year:
+                if _int_or_none(entry.get("year")) == year:
+                    return int(entry["tvdbId"])
+                continue
+            if wanted in {
+                str(entry.get(key, "")).strip().casefold() for key in ("title", "sortTitle")
+            }:
+                return int(entry["tvdbId"])
+
+        log.debug("Sonarr had no confident match for %r (%s).", title, year or "no year")
         return None
 
     @staticmethod

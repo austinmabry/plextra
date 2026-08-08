@@ -75,10 +75,34 @@ class StubArrHandler(BaseHTTPRequestHandler):
             return self._send(*routes[path])
 
         if path == "/api/v3/movie/lookup":
-            # Radarr's term search, used to turn an IMDb ID into a TMDb one.
+            # Radarr's term search, used to turn an IMDb ID into a TMDb one and,
+            # as a last resort, to search a bare title.
+            # Radarr's own search is case-insensitive, so the stub is too.
             term = query.get("term", [""])[0]
-            if term == "imdb:tt0133093":
+            if term.lower() == "imdb:tt0133093":
                 return self._send(200, [{"tmdbId": 329865, "title": "Arrival"}])
+            term = term.title() if ":" not in term else term
+            if term == "Heat":
+                # Radarr really does return several films called Heat.
+                return self._send(200, [
+                    {"tmdbId": 111, "title": "Heat", "year": 1972},
+                    {"tmdbId": 949, "title": "Heat", "year": 1995},
+                    {"tmdbId": 222, "title": "Heat", "year": 2024},
+                ])
+            if term == "The Matrix":
+                return self._send(200, [
+                    {
+                        "tmdbId": 603,
+                        "title": "The Matrix",
+                        "originalTitle": "The Matrix",
+                        "year": 1999,
+                    }
+                ])
+            if term == "Ambiguous":
+                # A near miss: the search answers, but with a different film.
+                return self._send(200, [{"tmdbId": 777, "title": "Ambiguous Sequel", "year": 2001}])
+            if term == "No Year Anywhere":
+                return self._send(200, [{"tmdbId": 888, "title": "Something Else"}])
             return self._send(200, [])
 
         if path == "/api/v3/movie/lookup/tmdb":
@@ -101,6 +125,15 @@ class StubArrHandler(BaseHTTPRequestHandler):
 
         if path == "/api/v3/series/lookup":
             term = query["term"][0]
+            if ":" not in term:
+                if term == "Severance":
+                    return self._send(200, [
+                        {"tvdbId": 371980, "title": "Severance", "year": 2022},
+                        {"tvdbId": 111, "title": "Severance", "year": 2006},
+                    ])
+                if term == "Wrong Year":
+                    return self._send(200, [{"tvdbId": 222, "title": "Wrong Year", "year": 1999}])
+                return self._send(200, [])
             tvdb_id = int(term.split(":")[1])
             if tvdb_id == 404404:
                 return self._send(200, [])
@@ -277,6 +310,39 @@ class TestRadarr:
             radarr.add_movie(409409, quality_profile_id=4, root_folder="/movies")
 
 
+class TestResolveByTitle:
+    """The last resort, for sources that publish no IDs at all. A search result
+    is a guess, so a near miss must come back as nothing rather than the wrong
+    film in someone's library."""
+
+    def test_the_year_picks_the_right_film_of_that_name(self, radarr):
+        assert radarr.resolve_by_title("Heat", 1995) == 949
+
+    def test_a_different_year_is_refused_even_though_the_title_matches(self, radarr):
+        assert radarr.resolve_by_title("Heat", 1985) is None
+
+    def test_with_no_year_an_exact_title_match_is_accepted(self, radarr):
+        assert radarr.resolve_by_title("The Matrix") == 603
+
+    def test_with_no_year_a_near_title_is_refused(self, radarr):
+        """"Ambiguous" returning "Ambiguous Sequel" must not count."""
+        assert radarr.resolve_by_title("Ambiguous") is None
+
+    def test_a_result_with_no_year_is_refused_when_a_year_was_wanted(self, radarr):
+        assert radarr.resolve_by_title("No Year Anywhere", 2001) is None
+
+    def test_no_results_is_not_an_error(self, radarr):
+        assert radarr.resolve_by_title("Nothing Like This Exists", 1999) is None
+
+    def test_an_empty_title_never_reaches_the_network(self, radarr):
+        REQUESTS.clear()
+        assert radarr.resolve_by_title("   ") is None
+        assert REQUESTS == []
+
+    def test_case_does_not_matter(self, radarr):
+        assert radarr.resolve_by_title("the matrix") == 603
+
+
 class TestSonarr:
     def test_library_ids(self, sonarr):
         assert sonarr.library_tvdb_ids() == {121361}
@@ -324,3 +390,12 @@ class TestSonarr:
             371980, quality_profile_id=5, root_folder="/tv", language_profile_id=1
         )
         assert RECORDED["/api/v3/series"]["languageProfileId"] == 1
+
+    def test_resolves_a_series_by_title_and_year(self, sonarr):
+        assert sonarr.resolve_by_title("Severance", 2022) == 371980
+
+    def test_a_wrong_year_is_refused(self, sonarr):
+        assert sonarr.resolve_by_title("Wrong Year", 2020) is None
+
+    def test_with_no_year_an_exact_title_is_needed(self, sonarr):
+        assert sonarr.resolve_by_title("Wrong Year") == 222

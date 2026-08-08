@@ -10,6 +10,13 @@ from .arr import ArrClient, ArrError, ArrMetadataError, ArrUnknownIdError
 log = logging.getLogger(__name__)
 
 
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 class RadarrClient(ArrClient):
     service = "Radarr"
 
@@ -80,6 +87,51 @@ class RadarrClient(ArrClient):
         for entry in payload or []:
             if isinstance(entry, dict) and entry.get("tmdbId"):
                 return int(entry["tmdbId"])
+        return None
+
+    def resolve_by_title(self, title: str, year: int | None = None) -> int | None:
+        """Last resort: find a TMDb ID from a title, the way the Add Movie box does.
+
+        Some sources carry no ID at all - a Letterboxd list or CSV export gives
+        only a name and a year. Radarr's search is the same one a human would
+        use, but a search result is a guess in a way an ID never is, so this is
+        deliberately strict: with a year, only an exact year match counts; with
+        no year, only an exact title match. Anything less and the item is left
+        unresolved rather than risking the wrong film in someone's library.
+        """
+        title = (title or "").strip()
+        if not title:
+            return None
+        try:
+            response = self.request("GET", "api/v3/movie/lookup", params={"term": title})
+        except ArrError as exc:
+            log.debug("Radarr title search for %r failed: %s", title, exc)
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if isinstance(payload, dict):
+            payload = [payload]
+
+        wanted = title.casefold()
+        for entry in payload or []:
+            if not isinstance(entry, dict) or not entry.get("tmdbId"):
+                continue
+            if year:
+                if _int_or_none(entry.get("year")) == year:
+                    return int(entry["tmdbId"])
+                continue
+            names = {
+                str(entry.get(key, "")).strip().casefold()
+                for key in ("title", "originalTitle", "sortTitle")
+            }
+            if wanted in names:
+                return int(entry["tmdbId"])
+
+        log.debug("Radarr had no confident match for %r (%s).", title, year or "no year")
         return None
 
     def lookup_tmdb(self, tmdb_id: int) -> dict[str, Any] | None:

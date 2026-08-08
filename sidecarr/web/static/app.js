@@ -807,6 +807,14 @@ function buildSourceField(spec, job) {
       if (String(choice.value) === String(value)) option.selected = true;
       input.append(option);
     }
+  } else if (spec.kind === "textarea") {
+    input = el("textarea", {
+      id: `sf-${spec.key}`,
+      "data-source-key": spec.key,
+      placeholder: spec.placeholder || "",
+      rows: 8,
+    });
+    input.value = value;
   } else {
     input = el("input", {
       type: "text",

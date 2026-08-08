@@ -301,7 +301,7 @@ class ConfigStore:
             # so a stale env var can never silently reset a chosen password.
             if settings.ENV_PASSWORD and not self._config.auth.password_hash:
                 self._config.auth.password_hash = hash_password(settings.ENV_PASSWORD)
-                log.info("Web password initialised from PLEXTRA_PASSWORD.")
+                log.info("Web password initialised from SIDECARR_PASSWORD.")
 
             self.save()
             if first_run:

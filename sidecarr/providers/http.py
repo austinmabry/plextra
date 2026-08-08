@@ -12,7 +12,7 @@ from .base import ProviderAuthError, ProviderError
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "Plextra/0.1 (+https://github.com/austinmabry/plextra)"
+USER_AGENT = "Sidecarr/0.1 (+https://github.com/austinmabry/sidecarr)"
 
 
 class HttpMixin:

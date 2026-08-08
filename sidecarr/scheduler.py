@@ -13,7 +13,7 @@ from .config import ConfigStore, ListJob
 from .db import Database
 from .sync import SyncAlreadyRunning, SyncEngine
 
-log = logging.getLogger("plextra.scheduler")
+log = logging.getLogger("sidecarr.scheduler")
 
 # Never schedule tighter than this, whatever the config says.
 MIN_INTERVAL_HOURS = 0.25

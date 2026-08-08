@@ -1,13 +1,13 @@
 """Encryption for the credentials stored in config.json.
 
-Plextra holds API keys and OAuth tokens for several services. Writing them in
+Sidecarr holds API keys and OAuth tokens for several services. Writing them in
 the clear means they leak through every ordinary accident: a config file pasted
 into a forum thread, a backup copied somewhere less private, a screenshot of a
 text editor.
 
 What this protects against, honestly:
 
-* ``PLEXTRA_SECRET_KEY`` set - the key lives outside the config volume, so a
+* ``SIDECARR_SECRET_KEY`` set - the key lives outside the config volume, so a
   copy of ``/config`` on its own is useless. This is the stronger setup.
 * No env var - a random key is generated into ``/config/secret.key`` with mode
   0600. That still defeats a stray copy of ``config.json``, but anyone holding
@@ -65,7 +65,7 @@ class SecretBox:
         key = Fernet.generate_key()
         self._write_private(key_path, key)
         log.info(
-            "Generated an encryption key at %s. Set PLEXTRA_SECRET_KEY to keep the "
+            "Generated an encryption key at %s. Set SIDECARR_SECRET_KEY to keep the "
             "key outside this volume instead.",
             key_path,
         )

@@ -7,9 +7,9 @@ live.
 
 import pytest
 
-from plextra import providers
-from plextra.config import AppConfig, Source
-from plextra.providers.base import MediaItem, ProviderError, parse_year, set_id
+from sidecarr import providers
+from sidecarr.config import AppConfig, Source
+from sidecarr.providers.base import MediaItem, ProviderError, parse_year, set_id
 
 
 @pytest.fixture
@@ -129,12 +129,12 @@ class TestTmdb:
         [("420", 420), ("  420 ", 420), ("https://www.themoviedb.org/collection/10-star-wars", 10)],
     )
     def test_numeric_ids_tolerate_pasted_urls(self, given, expected):
-        from plextra.providers.tmdb import _number
+        from sidecarr.providers.tmdb import _number
 
         assert _number(given, "collection ID") == expected
 
     def test_non_numeric_id_is_rejected(self):
-        from plextra.providers.tmdb import _number
+        from sidecarr.providers.tmdb import _number
 
         with pytest.raises(ProviderError, match="numeric TMDb"):
             _number("star-wars", "collection ID")
@@ -161,12 +161,12 @@ class TestMdblist:
         ],
     )
     def test_list_reference_forms(self, given, expected):
-        from plextra.providers.mdblist import parse_list_ref
+        from sidecarr.providers.mdblist import parse_list_ref
 
         assert parse_list_ref(given) == expected
 
     def test_bad_reference_is_reported(self):
-        from plextra.providers.mdblist import parse_list_ref
+        from sidecarr.providers.mdblist import parse_list_ref
 
         with pytest.raises(ProviderError, match="not an MDBList list"):
             parse_list_ref("just-a-word")
@@ -201,7 +201,7 @@ class TestPlex:
         assert providers.build("plex", config).configured()
 
     def test_reads_ids_out_of_plex_guids(self, config):
-        from plextra.providers.plex import PlexProvider
+        from sidecarr.providers.plex import PlexProvider
 
         item = PlexProvider._items(
             [{
@@ -217,14 +217,14 @@ class TestPlex:
         assert item.runtime == 116  # milliseconds -> minutes
 
     def test_wrong_media_type_is_skipped(self, config):
-        from plextra.providers.plex import PlexProvider
+        from sidecarr.providers.plex import PlexProvider
 
         entries = [{"type": "show", "title": "S", "Guid": [{"id": "tvdb://1"}]}]
         assert PlexProvider._items(entries, "movie") == []
         assert len(PlexProvider._items(entries, "show")) == 1
 
     def test_entries_without_guids_are_dropped(self, config):
-        from plextra.providers.plex import PlexProvider
+        from sidecarr.providers.plex import PlexProvider
 
         assert PlexProvider._items([{"type": "movie", "title": "No guids"}], "movie") == []
 
@@ -234,18 +234,18 @@ class TestImdb:
         "given", ["ls123456789", "https://www.imdb.com/list/ls123456789/", "  ls123456789 "]
     )
     def test_list_id_forms(self, given):
-        from plextra.providers.imdb import _list_id
+        from sidecarr.providers.imdb import _list_id
 
         assert _list_id(given) == "ls123456789"
 
     def test_bad_list_id_is_reported(self):
-        from plextra.providers.imdb import _list_id
+        from sidecarr.providers.imdb import _list_id
 
         with pytest.raises(ProviderError, match="not an IMDb list"):
             _list_id("my-favourites")
 
     def test_extracts_titles_from_embedded_json(self):
-        from plextra.providers.imdb import _extract
+        from sidecarr.providers.imdb import _extract
 
         html = """<script type="application/json">
         {"a": {"items": [
@@ -260,7 +260,7 @@ class TestImdb:
         ]
 
     def test_falls_back_to_bare_ids(self):
-        from plextra.providers.imdb import _extract
+        from sidecarr.providers.imdb import _extract
 
         items = _extract('<a href="/title/tt0133093/">x</a><a href="/title/tt0111161/">y</a>')
         assert [i.ids for i in items] == [{"imdb": "tt0133093"}, {"imdb": "tt0111161"}]

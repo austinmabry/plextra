@@ -1,4 +1,4 @@
-"""Entry point: ``python -m plextra``."""
+"""Entry point: ``python -m sidecarr``."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .logbuf import configure_logging
 def main() -> None:
     configure_logging(settings.LOG_LEVEL)
     uvicorn.run(
-        "plextra.api:app",
+        "sidecarr.api:app",
         host=settings.HOST,
         port=settings.PORT,
         log_config=None,

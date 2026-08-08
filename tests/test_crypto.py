@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from plextra.config import ConfigStore
-from plextra.crypto import PREFIX, SecretBox, transform_secrets
+from sidecarr.config import ConfigStore
+from sidecarr.crypto import PREFIX, SecretBox, transform_secrets
 
 
 class TestSecretBox:
@@ -138,7 +138,7 @@ class TestConfigStoreIntegration:
         assert "http://radarr:7878" in path.read_text()
 
     def test_trakt_tokens_are_encrypted(self, tmp_path):
-        from plextra.config import TraktAccount
+        from sidecarr.config import TraktAccount
 
         path = tmp_path / "config.json"
         store = ConfigStore(path)

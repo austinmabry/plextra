@@ -67,7 +67,7 @@ class TraktClient:
         self._on_account_update = on_account_update
         self._client = httpx.Client(
             timeout=timeout,
-            headers={"User-Agent": "Plextra/0.1 (+https://github.com/austinmabry/plextra)"},
+            headers={"User-Agent": "Sidecarr/0.1 (+https://github.com/austinmabry/sidecarr)"},
         )
 
     def close(self) -> None:
@@ -383,7 +383,7 @@ class TraktClient:
 
         if page > page_cap:
             log.warning(
-                "Stopped after %d pages (%d items) for %s; raise PLEXTRA_MAX_TRAKT_PAGES "
+                "Stopped after %d pages (%d items) for %s; raise SIDECARR_MAX_TRAKT_PAGES "
                 "if the list is longer than this.",
                 page_cap,
                 len(collected),

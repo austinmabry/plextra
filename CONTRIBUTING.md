@@ -1,4 +1,4 @@
-# Contributing to Plextra
+# Contributing to Sidecarr
 
 Thanks for taking a look. Bug reports, provider requests and pull requests are
 all welcome.
@@ -6,14 +6,14 @@ all welcome.
 ## Getting set up
 
 ```bash
-git clone https://github.com/austinmabry/plextra.git
-cd plextra
+git clone https://github.com/austinmabry/sidecarr.git
+cd sidecarr
 
 python -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pytest
 
-PLEXTRA_CONFIG_DIR=./config .venv/bin/python -m plextra
+SIDECARR_CONFIG_DIR=./config .venv/bin/python -m sidecarr
 ```
 
 The app is then on <http://localhost:9898>, storing its config in `./config`.
@@ -36,7 +36,7 @@ The app is then on <http://localhost:9898>, storing its config in `./config`.
 
 This is the most likely contribution, and it needs no front-end work.
 
-1. Create `plextra/providers/yoursite.py` with a class subclassing `Provider`.
+1. Create `sidecarr/providers/yoursite.py` with a class subclassing `Provider`.
 2. Declare `source_types` — a `SourceType` per kind of list, each with the
    `SourceField`s it needs. The list editor renders itself from this.
 3. Implement `fetch()`, returning `MediaItem` objects.
@@ -99,7 +99,7 @@ To check whether an image really is public, ask the registry anonymously — thi
 prints a manifest for a public package and `DENIED` for a private one:
 
 ```bash
-TOKEN=$(curl -s "https://ghcr.io/token?service=ghcr.io&scope=repository:austinmabry/plextra:pull" | jq -r .token)
+TOKEN=$(curl -s "https://ghcr.io/token?service=ghcr.io&scope=repository:austinmabry/sidecarr:pull" | jq -r .token)
 curl -s -H "Authorization: Bearer $TOKEN" \
-  https://ghcr.io/v2/austinmabry/plextra/manifests/latest | head
+  https://ghcr.io/v2/austinmabry/sidecarr/manifests/latest | head
 ```

@@ -37,12 +37,12 @@ from .logbuf import ring_handler
 from .scheduler import SyncScheduler
 from .sync import SyncAlreadyRunning, SyncConfigError, SyncEngine
 
-log = logging.getLogger("plextra.api")
+log = logging.getLogger("sidecarr.api")
 
-COOKIE_NAME = "plextra_session"
+COOKIE_NAME = "sidecarr_session"
 SESSION_MAX_AGE = 30 * 24 * 60 * 60
 
-CSRF_COOKIE = "plextra_csrf"
+CSRF_COOKIE = "sidecarr_csrf"
 CSRF_HEADER = "x-csrf-token"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -136,13 +136,15 @@ class ConnectionTestRequest(BaseModel):
 async def lifespan(app: FastAPI):
     global engine, scheduler
 
+    settings.warn_about_legacy_env()
+    settings.migrate_legacy_paths()
     store.load()
     db.init()
     engine = SyncEngine(store, db)
     scheduler = SyncScheduler(store, engine, db)
     scheduler.start()
 
-    log.info("Plextra %s is listening on %s:%s", __version__, settings.HOST, settings.PORT)
+    log.info("Sidecarr %s is listening on %s:%s", __version__, settings.HOST, settings.PORT)
     if not store.config.auth.enabled:
         log.warning(
             "No web password is set. Anyone who can reach this port can read the "
@@ -155,7 +157,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 
-app = FastAPI(title="Plextra", version=__version__, lifespan=lifespan)
+app = FastAPI(title="Sidecarr", version=__version__, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -179,7 +181,7 @@ async def security(request: Request, call_next):
                 content={
                     "detail": (
                         "Missing or invalid CSRF token. Reload the page. Scripted "
-                        "clients should read the plextra_csrf cookie from any GET "
+                        "clients should read the sidecarr_csrf cookie from any GET "
                         "and send it back in the X-CSRF-Token header."
                     )
                 },

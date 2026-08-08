@@ -1,6 +1,6 @@
-from plextra.config import Filters
-from plextra.filters import evaluate, sort_items
-from plextra.providers.base import MediaItem
+from sidecarr.config import Filters
+from sidecarr.filters import evaluate, sort_items
+from sidecarr.providers.base import MediaItem
 
 
 def movie(**overrides):

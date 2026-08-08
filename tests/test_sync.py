@@ -1,9 +1,9 @@
 import pytest
 
-from plextra.clients import ArrError
-from plextra.config import Filters, ListJob, Source
-from plextra.providers.base import MediaItem, ProviderError
-from plextra.sync import SyncConfigError, SyncEngine
+from sidecarr.clients import ArrError
+from sidecarr.config import Filters, ListJob, Source
+from sidecarr.providers.base import MediaItem, ProviderError
+from sidecarr.sync import SyncConfigError, SyncEngine
 
 
 def movie(tmdb, title, **overrides):
@@ -72,7 +72,7 @@ def source_items(monkeypatch):
             holder["closed"] = True
 
     monkeypatch.setattr(
-        "plextra.sync.provider_registry.build", lambda key, config, **kw: FakeProvider()
+        "sidecarr.sync.provider_registry.build", lambda key, config, **kw: FakeProvider()
     )
     return holder
 
@@ -151,7 +151,7 @@ def radarr(monkeypatch):
             state["added"].append((tmdb_id, kwargs))
             return {"id": 1}
 
-    monkeypatch.setattr("plextra.sync.RadarrClient", FakeRadarr)
+    monkeypatch.setattr("sidecarr.sync.RadarrClient", FakeRadarr)
     return state
 
 
@@ -229,7 +229,7 @@ def sonarr(monkeypatch):
             state["added"].append((tvdb_id, kwargs))
             return {"id": 1}
 
-    monkeypatch.setattr("plextra.sync.SonarrClient", FakeSonarr)
+    monkeypatch.setattr("sidecarr.sync.SonarrClient", FakeSonarr)
     return state
 
 
@@ -340,7 +340,7 @@ class TestBulkAdd:
         assert radarr["single_adds"] == []
 
     def test_batches_are_capped(self, engine, store, source_items, radarr, monkeypatch):
-        monkeypatch.setattr("plextra.sync.settings.BULK_BATCH_SIZE", 10)
+        monkeypatch.setattr("sidecarr.sync.settings.BULK_BATCH_SIZE", 10)
         source_items["items"] = [movie(i, f"Film {i}") for i in range(1, 26)]
 
         engine.run(add_list(store, name="Big list").id)
@@ -655,7 +655,7 @@ class TestPreflightAndPause:
         assert "not enabled or not configured" in engine.preflight(job.id)
 
     def test_preflight_reports_an_unreachable_target(self, engine, store, monkeypatch):
-        from plextra.clients import ArrError
+        from sidecarr.clients import ArrError
 
         class DeadRadarr:
             def __init__(self, url, api_key):
@@ -670,14 +670,14 @@ class TestPreflightAndPause:
             def system_status(self):
                 raise ArrError("Connection refused")
 
-        monkeypatch.setattr("plextra.sync.RadarrClient", DeadRadarr)
+        monkeypatch.setattr("sidecarr.sync.RadarrClient", DeadRadarr)
         job = add_list(store, name="Watchlist")
         assert "not responding" in engine.preflight(job.id)
 
     def test_a_scheduled_run_is_skipped_while_paused(
         self, engine, store, database, source_items, radarr
     ):
-        from plextra.scheduler import SyncScheduler
+        from sidecarr.scheduler import SyncScheduler
 
         source_items["items"] = [movie(1, "One")]
         job = add_list(store, name="Watchlist")

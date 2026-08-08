@@ -68,7 +68,7 @@ function toast(message, kind) {
 /* -------------------------------------------------------------------- api */
 
 function csrfToken() {
-  const match = document.cookie.match(/(?:^|;\s*)plextra_csrf=([^;]+)/);
+  const match = document.cookie.match(/(?:^|;\s*)sidecarr_csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : "";
 }
 
@@ -263,16 +263,16 @@ function applyTheme(theme) {
 }
 
 function currentTheme() {
-  const stored = localStorage.getItem("plextra-theme");
+  const stored = localStorage.getItem("sidecarr-theme");
   if (stored) return stored;
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
-applyTheme(localStorage.getItem("plextra-theme"));
+applyTheme(localStorage.getItem("sidecarr-theme"));
 
 $("theme-toggle").addEventListener("click", () => {
   const next = currentTheme() === "dark" ? "light" : "dark";
-  localStorage.setItem("plextra-theme", next);
+  localStorage.setItem("sidecarr-theme", next);
   applyTheme(next);
 });
 

@@ -191,7 +191,7 @@ def _parse_xml(text: str) -> list[dict[str, Any]]:
     try:
         root = ElementTree.fromstring(text)
     except ElementTree.ParseError as exc:
-        raise ProviderError(f"That URL returned XML Plextra could not parse: {exc}") from exc
+        raise ProviderError(f"That URL returned XML Sidecarr could not parse: {exc}") from exc
 
     entries: list[dict[str, Any]] = []
     # RSS <item> and Atom <entry>, namespace or not.

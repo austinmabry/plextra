@@ -1,4 +1,4 @@
-<h1 align="center">Plextra</h1>
+<h1 align="center">Sidecarr</h1>
 
 <p align="center">
   Sync lists from Trakt, TMDb, MDBList, IMDb, Plex and anywhere else
@@ -6,15 +6,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/austinmabry/plextra/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/austinmabry/plextra/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/austinmabry/plextra/releases"><img alt="Release" src="https://img.shields.io/github/v/release/austinmabry/plextra?sort=semver"></a>
-  <a href="https://github.com/austinmabry/plextra/pkgs/container/plextra"><img alt="Image" src="https://img.shields.io/badge/ghcr.io-plextra-blue?logo=docker&logoColor=white"></a>
+  <a href="https://github.com/austinmabry/sidecarr/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/austinmabry/sidecarr/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/austinmabry/sidecarr/releases"><img alt="Release" src="https://img.shields.io/github/v/release/austinmabry/sidecarr?sort=semver"></a>
+  <a href="https://github.com/austinmabry/sidecarr/pkgs/container/sidecarr"><img alt="Image" src="https://img.shields.io/badge/ghcr.io-sidecarr-blue?logo=docker&logoColor=white"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
 ![The Lists view, showing several lists with their schedules and next run times](docs/screenshots/lists.png)
 
-Point Plextra at the lists you already keep — wherever you keep them — and it
+Point Sidecarr at the lists you already keep — wherever you keep them — and it
 adds what is missing to Radarr or Sonarr on a schedule. It never removes,
 unmonitors or modifies anything you already have.
 
@@ -41,9 +41,9 @@ unmonitors or modifies anything you already have.
 
 ```yaml
 services:
-  plextra:
-    image: ghcr.io/austinmabry/plextra:latest
-    container_name: plextra
+  sidecarr:
+    image: ghcr.io/austinmabry/sidecarr:latest
+    container_name: sidecarr
     restart: unless-stopped
     ports:
       - "9898:9898"
@@ -66,22 +66,22 @@ Unraid's appdata is owned by `nobody:users`, and the image defaults to uid 1000,
 so set the user explicitly:
 
 ```bash
-mkdir -p /mnt/user/appdata/plextra
-chown -R 99:100 /mnt/user/appdata/plextra
+mkdir -p /mnt/user/appdata/sidecarr
+chown -R 99:100 /mnt/user/appdata/sidecarr
 
 docker run -d \
-  --name plextra \
+  --name sidecarr \
   --restart unless-stopped \
   --user 99:100 \
   -p 9898:9898 \
-  -v /mnt/user/appdata/plextra:/config \
+  -v /mnt/user/appdata/sidecarr:/config \
   -e TZ=America/Chicago \
-  ghcr.io/austinmabry/plextra:latest
+  ghcr.io/austinmabry/sidecarr:latest
 ```
 
 With the Compose Manager plugin, put the same settings in a
 `docker-compose.yml` under
-`/boot/config/plugins/compose.manager/projects/plextra/`, adding
+`/boot/config/plugins/compose.manager/projects/sidecarr/`, adding
 `user: "99:100"`.
 
 Address Radarr and Sonarr by the server's IP (`http://<UNRAID-IP>:7878`).
@@ -92,13 +92,13 @@ inside the container is the container itself.
 <details>
 <summary><strong>Alongside an existing media stack</strong></summary>
 
-Put Plextra on the same network and address the other containers by name:
+Put Sidecarr on the same network and address the other containers by name:
 
 ```yaml
 services:
-  plextra:
-    image: ghcr.io/austinmabry/plextra:latest
-    container_name: plextra
+  sidecarr:
+    image: ghcr.io/austinmabry/sidecarr:latest
+    container_name: sidecarr
     restart: unless-stopped
     ports:
       - "9898:9898"
@@ -148,13 +148,13 @@ list" has no single format. It understands:
 - RSS and Atom feeds, taking IMDb IDs from the link, guid or description
 - A bare list of IDs — `[603, 604]`, `["tt0133093"]`, or newline/comma separated
 
-Each entry needs only one of a TMDb, TVDb or IMDb ID; Plextra resolves the rest.
+Each entry needs only one of a TMDb, TVDb or IMDb ID; Sidecarr resolves the rest.
 
 ### Not included
 
 **Simkl, AniList and MyAnimeList.** Radarr and Sonarr reach all three through
 `auth.servarr.com`, an OAuth proxy using the Servarr project's own registered
-application credentials. Those are not Plextra's to use, and supporting these
+application credentials. Those are not Sidecarr's to use, and supporting these
 properly means registering separate OAuth applications with each service.
 Contributions welcome — the provider interface is the easy part.
 
@@ -184,9 +184,9 @@ saves what is in the box and then checks it.
 
 Paste the URL and API key (Radarr/Sonarr → Settings → General → API Key), press
 **Test & load options**, then pick a quality profile and root folder from the
-dropdowns Plextra just fetched.
+dropdowns Sidecarr just fetched.
 
-Sonarr v3 has language profiles and v4 does not. Plextra detects which you are
+Sonarr v3 has language profiles and v4 does not. Sidecarr detects which you are
 running and hides the field when it does not apply.
 
 ### 3. Add a list
@@ -211,7 +211,7 @@ would add, without writing anything. It also resolves every candidate, so a
 title Radarr has no metadata for is reported up front rather than promised and
 then failed on the real run.
 
-## What Plextra will and will not do
+## What Sidecarr will and will not do
 
 It makes exactly two kinds of write request, ever: `POST /api/v3/movie` and
 `POST /api/v3/series`. There is no `DELETE`, `PUT` or `PATCH` anywhere in the
@@ -220,7 +220,7 @@ already in your library.
 
 This is deliberately narrower than Radarr's own import lists, whose
 `CleanLibraryLevel` setting includes removing a movie and deleting its files
-when it falls off a list. Plextra has no equivalent.
+when it falls off a list. Sidecarr has no equivalent.
 
 Before adding anything it reads your whole library and skips what you already
 have, matching on both TMDb/TVDb and IMDb IDs. A list of 100 where you own 90
@@ -236,7 +236,7 @@ nothing until you say so.
 
 Radarr identifies movies by TMDb ID and Sonarr identifies series by TVDb ID, but
 most providers hand out something else — MDBList and IMDb lead with IMDb IDs,
-and TMDb has no TVDb ID for shows. Plextra closes the gap in three steps:
+and TMDb has no TVDb ID for shows. Sidecarr closes the gap in three steps:
 
 1. Use the ID the provider gave, if it is already the right one.
 2. Ask the provider — TMDb, for instance, can turn its own show ID into a TVDb one.
@@ -277,11 +277,11 @@ there either.
 
 ### Coming from traktarr
 
-Plextra carries [traktarr](https://github.com/l3uddz/traktarr)'s filtering model
+Sidecarr carries [traktarr](https://github.com/l3uddz/traktarr)'s filtering model
 over almost field for field, with two deliberate changes:
 
 - **Defaults are permissive.** traktarr shipped `min_year: 2000` /
-  `max_year: 2019` and quietly dropped everything else. Plextra filters nothing
+  `max_year: 2019` and quietly dropped everything else. Sidecarr filters nothing
   until asked.
 - **Countries and languages match exactly.** traktarr used a substring
   comparison, so `us` also matched `rus`.
@@ -301,12 +301,12 @@ syncing when its next run comes due skips that tick instead of stacking.
 Everything lives in `/config`, which should be a mounted volume:
 
 - `config.json` — settings, lists and Trakt tokens, written `0600`
-- `plextra.db` — run history, last 200 runs
+- `sidecarr.db` — run history, last 200 runs
 
 API keys and OAuth tokens inside `config.json` are encrypted. By default the key
 is generated into `/config/secret.key` (mode 0600), which protects a stray copy
 of `config.json` but not a copy of the whole volume — the key is sitting next to
-it. Set `PLEXTRA_SECRET_KEY` to a passphrase to keep the key off the volume
+it. Set `SIDECARR_SECRET_KEY` to a passphrase to keep the key off the volume
 entirely, which is the stronger arrangement. Back up `secret.key` alongside the
 config, or the stored credentials cannot be read back.
 
@@ -315,19 +315,35 @@ config, or the stored credentials cannot be read back.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `TZ` | UTC | Timezone for cron schedules and log timestamps |
-| `PLEXTRA_PORT` | `9898` | Listen port |
-| `PLEXTRA_LOG_LEVEL` | `INFO` | `DEBUG` logs every per-title filter decision |
-| `PLEXTRA_PASSWORD` | unset | Seeds the web password on first boot only |
-| `PLEXTRA_SECRET_KEY` | unset | Passphrase for encrypting stored credentials. Keeps the key off the config volume |
-| `PLEXTRA_COOKIE_SECURE` | `false` | Set `true` when served over HTTPS |
-| `PLEXTRA_CONFIG_DIR` | `/config` | Config and database location |
-| `PLEXTRA_MAX_TRAKT_PAGES` | `20` | Page cap per sync (100 items per page) |
-| `PLEXTRA_ADD_DELAY` | `0.5` | Seconds between batches of adds |
-| `PLEXTRA_BULK_BATCH_SIZE` | `50` | Titles per bulk import request |
+| `SIDECARR_PORT` | `9898` | Listen port |
+| `SIDECARR_LOG_LEVEL` | `INFO` | `DEBUG` logs every per-title filter decision |
+| `SIDECARR_PASSWORD` | unset | Seeds the web password on first boot only |
+| `SIDECARR_SECRET_KEY` | unset | Passphrase for encrypting stored credentials. Keeps the key off the config volume |
+| `SIDECARR_COOKIE_SECURE` | `false` | Set `true` when served over HTTPS |
+| `SIDECARR_CONFIG_DIR` | `/config` | Config and database location |
+| `SIDECARR_MAX_TRAKT_PAGES` | `20` | Page cap per sync (100 items per page) |
+| `SIDECARR_ADD_DELAY` | `0.5` | Seconds between batches of adds |
+| `SIDECARR_BULK_BATCH_SIZE` | `50` | Titles per bulk import request |
+
+### Upgrading from Plextra
+
+This project was called Plextra through 0.2.0. Nothing needs to be done by hand:
+
+- `PLEXTRA_*` variables are still read, so an unchanged compose file keeps
+  working. Sidecarr logs a deprecation warning naming each one it fell back to.
+  `PLEXTRA_SECRET_KEY` matters most — if it stopped being read, stored
+  credentials would no longer decrypt.
+- `plextra.db` is renamed to `sidecarr.db` on first start, so run history
+  survives.
+- The image moved to `ghcr.io/austinmabry/sidecarr`. Point the container at the
+  new image and keep the same `/config` volume.
+
+Rename the variables to `SIDECARR_*` when convenient; the fallback will be
+removed in a later release.
 
 ### Security
 
-Plextra holds credentials for several services, so set a password in
+Sidecarr holds credentials for several services, so set a password in
 Settings → Security unless the port is genuinely private. It warns in the log on
 every boot until you do. `/api/health` stays open for Docker's healthcheck;
 everything else requires the session cookie.
@@ -337,13 +353,13 @@ needs a CSRF token, and responses carry a Content-Security-Policy that permits
 no inline or remote script, plus `X-Frame-Options`, `X-Content-Type-Options`,
 `Referrer-Policy` and `Cross-Origin-Opener-Policy`.
 
-Set `PLEXTRA_COOKIE_SECURE=true` behind an HTTPS reverse proxy.
+Set `SIDECARR_COOKIE_SECURE=true` behind an HTTPS reverse proxy.
 
-Scripted clients must read the `plextra_csrf` cookie from any GET and send it
+Scripted clients must read the `sidecarr_csrf` cookie from any GET and send it
 back in an `X-CSRF-Token` header:
 
 ```bash
-TOKEN=$(curl -s -c /tmp/jar http://localhost:9898/api/health >/dev/null && awk '/plextra_csrf/{print $7}' /tmp/jar)
+TOKEN=$(curl -s -c /tmp/jar http://localhost:9898/api/health >/dev/null && awk '/sidecarr_csrf/{print $7}' /tmp/jar)
 curl -b /tmp/jar -H "X-CSRF-Token: $TOKEN" -X POST http://localhost:9898/api/lists/<id>/run
 ```
 
@@ -373,7 +389,7 @@ done — usually a TMDb entry deleted or merged after the list was built. Add th
 ID to the list's blacklisted IDs to stop it being retried.
 
 **"Path '…' is already configured for an existing movie".** The film is already
-in the library under a different TMDb ID. Plextra matches on IMDb ID as well and
+in the library under a different TMDb ID. Sidecarr matches on IMDb ID as well and
 reports these as `already in library, under a different ID` before attempting an
 add, so this should not reach Radarr. If it still does, the existing entry has no
 IMDb ID recorded.

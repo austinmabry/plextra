@@ -1,4 +1,4 @@
-from plextra.config import hash_password
+from sidecarr.config import hash_password
 
 
 class TestHealthAndPages:
@@ -10,7 +10,7 @@ class TestHealthAndPages:
     def test_index_is_served(self, client):
         response = client.get("/")
         assert response.status_code == 200
-        assert "Plextra" in response.text
+        assert "Sidecarr" in response.text
 
     def test_static_assets_are_served(self, client):
         assert client.get("/static/app.js").status_code == 200
@@ -29,7 +29,7 @@ class TestCsrf:
 
     def test_the_refusal_explains_what_to_do(self, raw_client):
         detail = raw_client.post("/api/lists", json={}).json()["detail"]
-        assert "plextra_csrf" in detail and "X-CSRF-Token" in detail
+        assert "sidecarr_csrf" in detail and "X-CSRF-Token" in detail
 
     def test_a_wrong_token_is_refused(self, raw_client):
         raw_client.get("/api/health")
@@ -42,11 +42,11 @@ class TestCsrf:
 
     def test_a_get_hands_out_a_token(self, raw_client):
         raw_client.get("/api/health")
-        assert raw_client.cookies.get("plextra_csrf")
+        assert raw_client.cookies.get("sidecarr_csrf")
 
     def test_echoing_the_cookie_back_works(self, raw_client):
         raw_client.get("/api/health")
-        raw_client.headers["X-CSRF-Token"] = raw_client.cookies.get("plextra_csrf")
+        raw_client.headers["X-CSRF-Token"] = raw_client.cookies.get("sidecarr_csrf")
         assert raw_client.post("/api/lists", json={"name": "Fine"}).status_code == 200
 
     def test_nothing_was_created_by_the_refused_request(self, raw_client):
@@ -84,13 +84,13 @@ class TestAuth:
     def test_setting_a_password_locks_the_api(self, client):
         assert client.put("/api/auth/password", json={"password": "s3cret"}).status_code == 200
 
-        client.cookies.delete("plextra_session")
+        client.cookies.delete("sidecarr_session")
         assert client.get("/api/config").status_code == 401
         assert client.get("/api/health").status_code == 200
 
     def test_login_with_the_right_password(self, client):
         client.put("/api/auth/password", json={"password": "s3cret"})
-        client.cookies.delete("plextra_session")
+        client.cookies.delete("sidecarr_session")
 
         assert client.post("/api/auth/login", json={"password": "nope"}).status_code == 401
         assert client.post("/api/auth/login", json={"password": "s3cret"}).status_code == 200
@@ -99,13 +99,13 @@ class TestAuth:
     def test_password_can_be_removed(self, client):
         client.put("/api/auth/password", json={"password": "s3cret"})
         client.put("/api/auth/password", json={"password": ""})
-        client.cookies.delete("plextra_session")
+        client.cookies.delete("sidecarr_session")
         assert client.get("/api/config").status_code == 200
 
     def test_forged_cookie_rejected(self, client):
         client.put("/api/auth/password", json={"password": "s3cret"})
-        client.cookies.delete("plextra_session")
-        client.cookies.set("plextra_session", "1700000000.deadbeef")
+        client.cookies.delete("sidecarr_session")
+        client.cookies.set("sidecarr_session", "1700000000.deadbeef")
         assert client.get("/api/config").status_code == 401
 
 
@@ -385,8 +385,8 @@ class TestArrGuards:
 
 class TestSeededPassword:
     def test_env_password_seeds_only_when_unset(self, tmp_path, monkeypatch):
-        from plextra import settings
-        from plextra.config import ConfigStore, verify_password
+        from sidecarr import settings
+        from sidecarr.config import ConfigStore, verify_password
 
         monkeypatch.setattr(settings, "ENV_PASSWORD", "from-env")
         config = ConfigStore(tmp_path / "config.json").load()

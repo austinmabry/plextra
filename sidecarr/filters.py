@@ -1,6 +1,6 @@
 """Item filtering, ported from traktarr's blacklist semantics.
 
-Filters run on the normalised :class:`~plextra.providers.base.MediaItem`, so
+Filters run on the normalised :class:`~sidecarr.providers.base.MediaItem`, so
 they behave the same whichever site the list came from.
 
 Differences from traktarr, on purpose:

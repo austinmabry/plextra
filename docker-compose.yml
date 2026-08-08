@@ -1,10 +1,10 @@
 services:
-  plextra:
-    image: ghcr.io/austinmabry/plextra:latest
+  sidecarr:
+    image: ghcr.io/austinmabry/sidecarr:latest
     # To run your own changes instead, comment out the image line above and
     # uncomment this to build from the checkout.
     # build: .
-    container_name: plextra
+    container_name: sidecarr
     restart: unless-stopped
     ports:
       - "9898:9898"
@@ -12,15 +12,15 @@ services:
       - ./config:/config
     environment:
       - TZ=Etc/UTC
-      - PLEXTRA_LOG_LEVEL=INFO
+      - SIDECARR_LOG_LEVEL=INFO
       # Seeds the web password on first boot only. Set one here, or in the GUI.
-      # - PLEXTRA_PASSWORD=change-me
+      # - SIDECARR_PASSWORD=change-me
     # The image runs as uid/gid 1000. If ./config on the host is owned by a
-    # different user, set that uid:gid here or Plextra cannot write its config.
+    # different user, set that uid:gid here or Sidecarr cannot write its config.
     # On Unraid, that means user: "99:100".
     # user: "1000:1000"
 
-# If Radarr and Sonarr run in their own compose stack, put Plextra on the same
+# If Radarr and Sonarr run in their own compose stack, put Sidecarr on the same
 # network and address them by container name (http://radarr:7878). Otherwise use
 # the host's LAN IP -- "localhost" inside this container means the container.
 #

@@ -12,9 +12,9 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from plextra import providers
-from plextra.config import AppConfig, Source
-from plextra.providers.base import ProviderAuthError, ProviderError
+from sidecarr import providers
+from sidecarr.config import AppConfig, Source
+from sidecarr.providers.base import ProviderAuthError, ProviderError
 
 REQUESTS: list[tuple[str, dict]] = []
 
@@ -134,7 +134,7 @@ def source(provider, type_, **options):
 class TestTmdb:
     @pytest.fixture
     def provider(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.tmdb.BASE", f"{stub}/3")
+        monkeypatch.setattr("sidecarr.providers.tmdb.BASE", f"{stub}/3")
         config.tmdb.api_key = "tmdb-key"
         p = providers.build("tmdb", config)
         yield p
@@ -152,14 +152,14 @@ class TestTmdb:
         assert all(q.get("api_key") == "tmdb-key" for _, q in REQUESTS)
 
     def test_a_bad_key_is_reported_as_auth(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.tmdb.BASE", f"{stub}/3")
+        monkeypatch.setattr("sidecarr.providers.tmdb.BASE", f"{stub}/3")
         config.tmdb.api_key = "wrong"
         with providers.build("tmdb", config) as provider:
             with pytest.raises(ProviderAuthError):
                 provider.fetch(source("tmdb", "popular"), "movie")
 
     def test_missing_key_never_reaches_the_network(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.tmdb.BASE", f"{stub}/3")
+        monkeypatch.setattr("sidecarr.providers.tmdb.BASE", f"{stub}/3")
         p = providers.build("tmdb", config)
         try:
             with pytest.raises(ProviderAuthError, match="No TMDb API key"):
@@ -180,7 +180,7 @@ class TestTmdb:
         assert query["with_companies"] == "420"
 
     def test_show_ids_are_resolved_to_tvdb(self, provider):
-        from plextra.providers.base import MediaItem
+        from sidecarr.providers.base import MediaItem
 
         item = MediaItem(ids={"tmdb": 95396})
         provider.resolve_ids(item, "show")
@@ -191,7 +191,7 @@ class TestTmdb:
 class TestMdblist:
     @pytest.fixture
     def provider(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.mdblist.BASE", stub)
+        monkeypatch.setattr("sidecarr.providers.mdblist.BASE", stub)
         config.mdblist.api_key = "mdb-key"
         p = providers.build("mdblist", config)
         yield p
@@ -220,7 +220,7 @@ class TestMdblist:
         ]
 
     def test_bad_key_is_auth_error(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.mdblist.BASE", stub)
+        monkeypatch.setattr("sidecarr.providers.mdblist.BASE", stub)
         config.mdblist.api_key = "wrong"
         p = providers.build("mdblist", config)
         try:
@@ -233,7 +233,7 @@ class TestMdblist:
 class TestPlex:
     @pytest.fixture
     def provider(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.plex.DISCOVER", stub)
+        monkeypatch.setattr("sidecarr.providers.plex.DISCOVER", stub)
         config.plex.token = "plex-token"
         p = providers.build("plex", config)
         yield p
@@ -256,7 +256,7 @@ class TestPlex:
         assert REQUESTS[-1][1]["includeGuids"] == "1"
 
     def test_bad_token_is_auth_error(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.plex.DISCOVER", stub)
+        monkeypatch.setattr("sidecarr.providers.plex.DISCOVER", stub)
         config.plex.token = "wrong"
         p = providers.build("plex", config)
         try:
@@ -268,7 +268,7 @@ class TestPlex:
 
 class TestStevenLu:
     def test_fetches_the_published_list(self, config, stub, monkeypatch):
-        monkeypatch.setattr("plextra.providers.simple.STEVENLU_URL", f"{stub}/stevenlu.json")
+        monkeypatch.setattr("sidecarr.providers.simple.STEVENLU_URL", f"{stub}/stevenlu.json")
         p = providers.build("stevenlu", config)
         try:
             items = p.fetch(source("stevenlu", "popular"), "movie")

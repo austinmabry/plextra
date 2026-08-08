@@ -1,6 +1,6 @@
 import pytest
 
-from plextra.clients.trakt import TraktClient, TraktError, parse_list_url
+from sidecarr.clients.trakt import TraktClient, TraktError, parse_list_url
 
 
 class TestParseListUrl:
@@ -92,12 +92,12 @@ class TestResolveSource:
     """Source type -> endpoint mapping, without touching the network."""
 
     def client(self):
-        from plextra.config import TraktConfig
+        from sidecarr.config import TraktConfig
 
         return TraktClient(TraktConfig(client_id="abc", client_secret="def"))
 
     def resolve(self, source_type, media="movie", **kwargs):
-        from plextra.config import Source
+        from sidecarr.config import Source
 
         with self.client() as trakt:
             return trakt._resolve(Source(type=source_type, **kwargs), media)
@@ -138,7 +138,7 @@ class TestResolveSource:
 
     def test_unknown_type_is_rejected(self):
         """Now that many providers exist, the API validates against the provider."""
-        from plextra.config import Source
+        from sidecarr.config import Source
 
         source = Source(provider="trakt", type="nonsense")
         with self.client() as trakt:

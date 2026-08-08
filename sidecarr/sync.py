@@ -16,7 +16,7 @@ from .config import AppConfig, ConfigStore, ListJob, TraktAccount
 from .db import Database
 from .providers.base import MediaItem, Provider, ProviderError
 
-log = logging.getLogger("plextra.sync")
+log = logging.getLogger("sidecarr.sync")
 
 
 class SyncAlreadyRunning(Exception):

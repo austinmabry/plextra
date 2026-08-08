@@ -77,7 +77,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
           labels: |
-            org.opencontainers.image.title=Plextra
+            org.opencontainers.image.title=Sidecarr
             org.opencontainers.image.description=Sync Trakt lists into Radarr and Sonarr, from a browser, in Docker
             org.opencontainers.image.licenses=MIT
 

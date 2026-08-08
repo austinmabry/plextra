@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed to Sidecarr.** The project, the Python package, the container image
+  (`ghcr.io/austinmabry/sidecarr`) and every environment variable now use the
+  new name. Upgrades are handled automatically:
+  - `PLEXTRA_*` environment variables are still read, with a deprecation warning
+    naming each one that was used. `PLEXTRA_SECRET_KEY` in particular has to keep
+    working, or encrypted credentials would stop decrypting on upgrade.
+  - `plextra.db` is renamed to `sidecarr.db` on first start, so run history
+    survives.
+  - Session and CSRF cookies are now `sidecarr_session` and `sidecarr_csrf`,
+    which signs everyone out once.
+
+  The `PLEXTRA_*` fallback will be removed in a later release.
+- `SIDECARR_BULK_BATCH_SIZE` (default 50) controls the batch size, and the delay
+  between adds now applies between batches rather than between titles.
+
 ### Added
 
 - **Bulk import.** Titles are now added in batches of 50 through Radarr's
@@ -16,7 +33,7 @@ All notable changes to this project are documented here. The format follows
   and if the endpoint is unavailable the whole batch falls back to individual
   adds.
 - **Credentials encrypted at rest.** API keys and OAuth tokens in `config.json`
-  are encrypted with Fernet. Set `PLEXTRA_SECRET_KEY` to keep the key off the
+  are encrypted with Fernet. Set `SIDECARR_SECRET_KEY` to keep the key off the
   config volume entirely; otherwise a random key is generated into
   `/config/secret.key` with mode 0600. Existing plaintext configs are read and
   re-written encrypted on first load.
@@ -33,11 +50,6 @@ All notable changes to this project are documented here. The format follows
 - **Pre-flight health check** before each scheduled run. A target that is simply
   down is skipped with a log line instead of recording a failed run every few
   hours.
-
-### Changed
-
-- `PLEXTRA_BULK_BATCH_SIZE` (default 50) controls the batch size, and the delay
-  between adds now applies between batches rather than between titles.
 
 ## [0.2.0]
 

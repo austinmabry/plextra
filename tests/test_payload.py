@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from plextra.providers.base import ProviderError
-from plextra.providers.payload import parse_any
+from sidecarr.providers.base import ProviderError
+from sidecarr.providers.payload import parse_any
 
 
 def ids(items):

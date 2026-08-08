@@ -1,6 +1,6 @@
 import json
 
-from plextra.config import (
+from sidecarr.config import (
     AppConfig,
     ConfigStore,
     ListJob,

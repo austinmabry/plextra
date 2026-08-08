@@ -81,7 +81,7 @@ class CustomProvider(HttpMixin, Provider):
         items = parse_any(text, media_type, id_hint=source.get("id_hint") or "")
         if not items:
             raise ProviderError(
-                "Nothing usable came back from that URL. Plextra needs JSON, an RSS "
+                "Nothing usable came back from that URL. Sidecarr needs JSON, an RSS "
                 "feed, or a list of IDs, and each entry needs a TMDb, TVDb or IMDb ID."
             )
         return dedupe(items)

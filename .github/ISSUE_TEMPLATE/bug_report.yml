@@ -20,7 +20,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Plextra version
+      label: Sidecarr version
       description: Shown under the logo in the sidebar, or from `/api/health`.
       placeholder: "0.2.0"
     validations:
@@ -54,7 +54,7 @@ body:
     attributes:
       label: Logs
       description: >
-        From the Logs tab. Setting PLEXTRA_LOG_LEVEL=DEBUG records every
+        From the Logs tab. Setting SIDECARR_LOG_LEVEL=DEBUG records every
         per-title decision. Please redact API keys and tokens.
       render: text
 

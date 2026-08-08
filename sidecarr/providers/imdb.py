@@ -1,7 +1,7 @@
 """IMDb lists and charts.
 
 IMDb has no public API. Radarr reaches these through its own hosted proxy
-(api.radarr.video), which is not ours to use, so Plextra reads the public pages
+(api.radarr.video), which is not ours to use, so Sidecarr reads the public pages
 directly and pulls the title IDs out.
 
 That means IMDb items arrive as an IMDb ID and, where the page makes it easy, a

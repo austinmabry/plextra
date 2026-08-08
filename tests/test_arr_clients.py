@@ -80,7 +80,17 @@ class StubArrHandler(BaseHTTPRequestHandler):
             # Radarr's own search is case-insensitive, so the stub is too.
             term = query.get("term", [""])[0]
             if term.lower() == "imdb:tt0133093":
-                return self._send(200, [{"tmdbId": 329865, "title": "Arrival"}])
+                return self._send(200, [{
+                    "tmdbId": 329865, "title": "Arrival",
+                    "titleSlug": "arrival-329865", "year": 2016,
+                }])
+            # The real case from a live library: lookup/tmdb 500s for a title,
+            # but the IMDb search route answers for the same film.
+            if term.lower() == "imdb:tt6889128":
+                return self._send(200, [{
+                    "tmdbId": 552095, "title": "PAW Patrol: Mighty Pups",
+                    "titleSlug": "paw-patrol-mighty-pups-552095", "year": 2018,
+                }])
             term = term.title() if ":" not in term else term
             if term == "Heat":
                 # Radarr really does return several films called Heat.
@@ -109,6 +119,9 @@ class StubArrHandler(BaseHTTPRequestHandler):
             tmdb_id = int(query["tmdbId"][0])
             if tmdb_id == 404404:
                 return self._send(404, {"message": "Movie not found"})
+            if tmdb_id == 552095:
+                # 500 by TMDb ID, resolvable by IMDb ID - the shape seen live.
+                return self._send(500, {"message": "Internal Server Error"})
             if tmdb_id == 500500:
                 # Radarr surfaces a failure of its own metadata service as a
                 # 500. A title it simply does not have gives the 404 above.
@@ -290,7 +303,6 @@ class TestRadarr:
 
         message = str(exc.value)
         assert "metadata service" in message
-        assert "temporary" in message
         assert "does not recognise" not in message
 
     def test_server_errors_are_still_retried(self, radarr):
@@ -304,6 +316,34 @@ class TestRadarr:
         """The two lookups go through different paths in Radarr, so one can
         work when the other does not."""
         assert radarr.resolve_for_add(404404, "tt0133093") is not None
+
+    def test_a_500_still_tries_the_imdb_route(self, radarr):
+        """Seen live: lookup/tmdb 500s for a title the IMDb search resolves.
+
+        Radarr answers a title it genuinely does not know with a 404, so a 500
+        is exactly when the other route is worth trying - but the fallback used
+        to be skipped because the TMDb lookup raised first.
+        """
+        record = radarr.resolve_for_add(552095, "tt6889128")
+        assert record is not None
+        assert record["tmdbId"] == 552095
+
+    def test_a_500_with_no_imdb_id_still_raises(self, radarr):
+        with pytest.raises(ArrMetadataError):
+            radarr.resolve_for_add(552095, "")
+
+    def test_a_500_on_both_routes_raises(self, radarr):
+        with pytest.raises(ArrMetadataError):
+            radarr.resolve_for_add(552095, "tt0000000")
+
+    def test_the_error_names_the_id_it_asked_for(self, radarr):
+        """Without the ID the message cannot be acted on or reproduced."""
+        with pytest.raises(ArrMetadataError, match="tmdbId=500500"):
+            radarr.lookup_tmdb(500500)
+
+    def test_the_error_explains_that_404_means_unknown(self, radarr):
+        with pytest.raises(ArrMetadataError, match="does not know with a 404"):
+            radarr.lookup_tmdb(500500)
 
     def test_radarr_error_message_is_surfaced(self, radarr):
         with pytest.raises(ArrError, match="already been added"):

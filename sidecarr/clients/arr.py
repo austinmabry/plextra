@@ -108,11 +108,19 @@ class ArrClient:
                 time.sleep(2**attempt)
 
         if server_error:
+            # Name the ID that was asked for. Without it the message is
+            # untestable, and the first thing worth knowing is whether the
+            # metadata service can serve that ID at all.
+            asked_for = ""
+            for key in ("tmdbId", "tvdbId", "term"):
+                if params and params.get(key):
+                    asked_for = f" (for {key}={params[key]})"
+                    break
             raise ArrMetadataError(
-                f"{self.service} returned {last_error} for {path} after "
-                f"{max_attempts} tries. That is {self.service}'s own metadata "
-                "service or the network to it failing, not a problem with the "
-                "title, and it is usually temporary."
+                f"{self.service} returned {last_error} for {path}{asked_for} after "
+                f"{max_attempts} tries. {self.service} answers a title it genuinely "
+                "does not know with a 404, so a 500 means its metadata service "
+                f"failed or {self.service} could not reach it."
             )
         raise ArrError(f"{self.service} request to {path} failed: {last_error}")
 

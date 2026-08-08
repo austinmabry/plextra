@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A 500 from `movie/lookup/tmdb` no longer gives up on a title that the IMDb
+  route can resolve.** `resolve_for_add` documented a fallback from the TMDb
+  lookup to the IMDb one, but the TMDb lookup raises on a 500, so the fallback
+  was unreachable in exactly the case it was written for. It now catches that,
+  and uses the record the IMDb search returns rather than taking its TMDb ID and
+  repeating the request that just failed.
+- Failures from Radarr and Sonarr name the ID that was asked for, so a report
+  like "could not add X" can actually be reproduced against the metadata
+  service. The message no longer calls a 5xx "usually temporary" - Radarr
+  answers an unknown title with a 404, so a 500 means its metadata service
+  failed or is unreachable, and that can persist for weeks.
+
 ## [0.3.1] - 2026-08-08
 
 ### Added

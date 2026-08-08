@@ -170,16 +170,60 @@ class RadarrClient(ArrClient):
         """The full Radarr record to build an add payload from, or None.
 
         Tries the TMDb lookup first, then the IMDb one. They go through
-        different code paths in Radarr, so a title its metadata server cannot
-        serve by TMDb ID sometimes still resolves by IMDb ID.
+        different code paths in Radarr - ``lookup/tmdb`` fetches metadata for one
+        ID, while the IMDb route runs a search - so a title the first cannot
+        serve sometimes still resolves through the second.
+
+        A 5xx from the TMDb lookup must not skip that fallback. Radarr answers a
+        genuine miss with a clean 404 and turns *any other* metadata failure into
+        a 500, so a 500 is exactly the case where the other route is worth trying.
         """
-        lookup = self.lookup_tmdb(tmdb_id)
+        metadata_error: ArrMetadataError | None = None
+        try:
+            lookup = self.lookup_tmdb(tmdb_id)
+        except ArrMetadataError as exc:
+            metadata_error = exc
+            lookup = None
+
         if not lookup and imdb_id:
-            log.debug("Falling back to an IMDb lookup for %s.", imdb_id)
-            resolved = self.resolve_tmdb_id(imdb_id)
-            if resolved and resolved != tmdb_id:
-                lookup = self.lookup_tmdb(resolved)
-        return lookup
+            log.debug("Falling back to an IMDb search for %s.", imdb_id)
+            try:
+                # Use the record the search itself returns. Taking only its TMDb
+                # ID and looking that up again would just repeat the request that
+                # already failed.
+                lookup = self.lookup_imdb(imdb_id)
+            except ArrMetadataError as exc:
+                metadata_error = metadata_error or exc
+
+        if lookup:
+            return lookup
+        if metadata_error is not None:
+            raise metadata_error
+        return None
+
+    def lookup_imdb(self, imdb_id: str) -> dict[str, Any] | None:
+        """The full record from Radarr's IMDb search, ready to build a payload.
+
+        ``movie/lookup?term=imdb:…`` runs a search, which is a different route
+        through Radarr than the per-ID metadata fetch ``lookup/tmdb`` uses.
+        """
+        if not imdb_id:
+            return None
+        response = self.request(
+            "GET", "api/v3/movie/lookup", params={"term": f"imdb:{imdb_id}"}
+        )
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if isinstance(payload, dict):
+            payload = [payload]
+        for entry in payload or []:
+            if isinstance(entry, dict) and entry.get("titleSlug") and entry.get("tmdbId"):
+                return entry
+        return None
 
     @staticmethod
     def unknown_id(tmdb_id: int, imdb_id: str = "") -> ArrUnknownIdError:

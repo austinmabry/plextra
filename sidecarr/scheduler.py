@@ -9,6 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from . import settings
 from .config import ConfigStore, ListJob
 from .db import Database
 from .sync import SyncAlreadyRunning, SyncEngine
@@ -43,9 +44,24 @@ class SyncScheduler:
 
     # -- job management ------------------------------------------------------ #
 
+    DRAIN_JOB_ID = "__drain__"
+
     def reload(self) -> None:
         """Rebuild every job from the current config."""
         self._scheduler.remove_all_jobs()
+
+        # Checked every minute rather than once per window, so the queue drains
+        # smoothly as capacity frees instead of in one burst on the boundary. It
+        # is a single SELECT when there is nothing waiting.
+        self._scheduler.add_job(
+            self._drain_queue,
+            trigger=IntervalTrigger(minutes=1),
+            id=self.DRAIN_JOB_ID,
+            name="Release queued titles",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
 
         scheduled = 0
         for job in self.store.config.lists:
@@ -124,10 +140,44 @@ class SyncScheduler:
         except Exception:  # pragma: no cover - engine already logs specifics
             log.exception("Scheduled run of %r failed.", name)
 
+    def _drain_queue(self) -> None:
+        """Release whatever the rate window currently allows."""
+        config = self.store.config
+        if config.scheduler.paused:
+            return
+
+        expired = self.db.queue_expire(settings.QUEUE_TTL_DAYS * 86400)
+        if expired:
+            log.info(
+                "Dropped %d queued titles older than %d days.",
+                expired,
+                settings.QUEUE_TTL_DAYS,
+            )
+        self.db.prune_add_events(max(config.pacing.window_minutes * 60 * 4, 86400))
+
+        if not config.pacing.enabled:
+            # Turning the limit off should release what is already waiting rather
+            # than leaving it stranded.
+            waiting = sum(self.db.queue_counts().values())
+            if waiting:
+                log.info("Rate limit is off; releasing %d queued titles.", waiting)
+                self.engine.drain(waiting)
+            return
+
+        allowance = self.engine.allowance(config)
+        if allowance <= 0:
+            return
+        try:
+            self.engine.drain(allowance)
+        except Exception:  # pragma: no cover - engine logs the specifics
+            log.exception("Releasing queued titles failed.")
+
     # -- introspection -------------------------------------------------------- #
 
     def next_runs(self) -> dict[str, str | None]:
         result: dict[str, str | None] = {}
         for job in self._scheduler.get_jobs():
+            if job.id == self.DRAIN_JOB_ID:
+                continue
             result[job.id] = job.next_run_time.isoformat() if job.next_run_time else None
         return result

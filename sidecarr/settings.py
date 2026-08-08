@@ -97,3 +97,8 @@ def migrate_legacy_paths() -> None:
         log.warning("Could not migrate %s to %s: %s", LEGACY_DB_FILE, DB_FILE, exc)
         return
     log.info("Migrated %s to %s", LEGACY_DB_FILE.name, DB_FILE.name)
+
+
+# How long a title may sit in the paced-add queue before it is given up on. It
+# will be re-queued by the next sync if it is still on its list.
+QUEUE_TTL_DAYS = int(_str_env("QUEUE_TTL_DAYS", "30"))

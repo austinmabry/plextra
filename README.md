@@ -372,6 +372,33 @@ resume from the last successful run rather than restarting the clock, so
 restarting the container does not push the next sync out a full day. A list still
 syncing when its next run comes due skips that tick instead of stacking.
 
+## Limiting the add rate
+
+The first sync of a big list is the dangerous one. A 1,000-title list you own ten
+of means 990 additions in one go, and each one makes Radarr or Sonarr search every
+indexer and hand the results to a download client. That is what strains a setup —
+indexer rate limits, a saturated download queue, a disk filling faster than
+expected — not the additions themselves.
+
+Settings → **Add rate** turns on a limit: *N titles per M minutes*, 10 per 10
+minutes by default, which works out around 60 an hour. A sync adds what the
+current window allows and parks the rest in a queue; a background job releases
+more every minute as capacity frees up. The limit is global, because your
+download client is — five lists do not each get their own budget.
+
+- The queue survives restarts, and each list shows how many of its titles are
+  waiting.
+- Before releasing anything, Sidecarr re-checks the library, so a title you added
+  by hand while it waited is dropped rather than added twice.
+- A title that fails to add is not retried from the queue. It is still on its
+  list, so the next sync picks it up — one bad title cannot block the queue.
+- **Turning the limit off releases the whole backlog** on the next tick, rather
+  than stranding it. Clearing the queue by hand is also safe: those titles are
+  still on their lists and come back on the next sync.
+- A dry run reports what *would* be held back and queues nothing.
+
+Off by default, since it changes when titles appear.
+
 ## Configuration
 
 Everything lives in `/config`, which should be a mounted volume:
@@ -400,6 +427,7 @@ config, or the stored credentials cannot be read back.
 | `SIDECARR_MAX_TRAKT_PAGES` | `20` | Page cap per sync (100 items per page) |
 | `SIDECARR_ADD_DELAY` | `0.5` | Seconds between batches of adds |
 | `SIDECARR_BULK_BATCH_SIZE` | `50` | Titles per bulk import request |
+| `SIDECARR_QUEUE_TTL_DAYS` | `30` | How long a rate-limited title waits before being given up on |
 
 ### Upgrading from Plextra
 

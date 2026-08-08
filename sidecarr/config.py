@@ -230,6 +230,24 @@ class SchedulerConfig(BaseModel):
     paused: bool = False
 
 
+class PacingConfig(BaseModel):
+    """How fast titles are allowed to reach Radarr and Sonarr.
+
+    A first sync of a 1,000-title list you own ten of means 990 additions at
+    once, and each one makes the target search every indexer and hand the
+    results to a download client. That is what breaks things, not the adds
+    themselves. When this is on, a sync adds what the current window allows and
+    parks the rest; a background job releases more as capacity frees up.
+
+    Off by default, because it changes when titles appear.
+    """
+
+    enabled: bool = False
+    # Titles released per window, across every list.
+    max_adds: int = Field(default=10, ge=1, le=1000)
+    window_minutes: int = Field(default=10, ge=1, le=1440)
+
+
 class AuthConfig(BaseModel):
     password_hash: str = ""
     secret_key: str = Field(default_factory=lambda: secrets.token_hex(32))
@@ -249,6 +267,7 @@ class AppConfig(BaseModel):
     sonarr: SonarrConfig = Field(default_factory=SonarrConfig)
     lists: list[ListJob] = Field(default_factory=list)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    pacing: PacingConfig = Field(default_factory=PacingConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
     def find_list(self, list_id: str) -> ListJob | None:

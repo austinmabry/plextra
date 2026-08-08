@@ -42,6 +42,8 @@ class SyncResult:
     unresolved: int = 0
     added: int = 0
     failed: int = 0
+    # Held back by the rate limit, waiting in the queue for capacity.
+    queued: int = 0
     message: str = ""
     added_titles: list[str] = field(default_factory=list)
 
@@ -60,6 +62,7 @@ class SyncResult:
             "unresolved": self.unresolved,
             "added": self.added,
             "failed": self.failed,
+            "queued": self.queued,
             "message": self.message,
             "added_titles": self.added_titles,
         }
@@ -159,8 +162,12 @@ class SyncEngine:
 
     # -- the actual work ----------------------------------------------------- #
 
-    def _execute(self, config: AppConfig, job: ListJob, result: SyncResult) -> None:
-        media = job.media_type
+    def _target_settings(self, config: AppConfig, job: ListJob, media: str) -> dict[str, Any]:
+        """The target and the per-list overrides applied to it.
+
+        Shared by a normal sync and by the queue drain, so a title released hours
+        later lands with exactly the settings its list would have given it.
+        """
         target = config.radarr if media == "movie" else config.sonarr
         target_name = "Radarr" if media == "movie" else "Sonarr"
 
@@ -176,10 +183,26 @@ class SyncEngine:
         if not root_folder:
             raise SyncConfigError(f"No {target_name} root folder chosen.")
 
-        search_on_add = (
-            target.search_on_add if job.search_on_add is None else job.search_on_add
-        )
-        tags = sorted(set(target.tags) | set(job.tags))
+        return {
+            "target": target,
+            "target_name": target_name,
+            "quality_profile_id": quality_profile_id,
+            "root_folder": root_folder,
+            "search_on_add": (
+                target.search_on_add if job.search_on_add is None else job.search_on_add
+            ),
+            "tags": sorted(set(target.tags) | set(job.tags)),
+        }
+
+    def _execute(self, config: AppConfig, job: ListJob, result: SyncResult) -> None:
+        media = job.media_type
+        chosen = self._target_settings(config, job, media)
+        target = chosen["target"]
+        target_name = chosen["target_name"]
+        quality_profile_id = chosen["quality_profile_id"]
+        root_folder = chosen["root_folder"]
+        search_on_add = chosen["search_on_add"]
+        tags = chosen["tags"]
 
         with self._build_provider(config, job) as provider:
             if not provider.configured():
@@ -236,6 +259,11 @@ class SyncEngine:
                 log.info("[%s] Nothing new to add.", job.name)
                 return
 
+            candidates = self._apply_pacing(config, job, media, candidates, result)
+            if not candidates:
+                # Everything went to the queue; the drain job takes it from here.
+                return
+
             self._add_all(
                 job=job,
                 arr=arr,
@@ -259,7 +287,201 @@ class SyncEngine:
         if not result.message:
             verb = "Would add" if result.dry_run else "Added"
             result.message = f"{verb} {result.added} of {result.candidates} eligible titles."
+        if result.queued:
+            result.message += f" {result.queued} queued for later."
         log.info("[%s] %s", job.name, result.message)
+
+    # -- pacing --------------------------------------------------------------- #
+
+    def allowance(self, config: AppConfig | None = None) -> int:
+        """How many titles may still be released in the current window."""
+        config = config or self.store.config
+        if not config.pacing.enabled:
+            return -1  # unlimited
+        window = config.pacing.window_minutes * 60
+        return max(0, config.pacing.max_adds - self.db.adds_since(window))
+
+    def _apply_pacing(
+        self,
+        config: AppConfig,
+        job: ListJob,
+        media: str,
+        candidates: list[tuple[MediaItem, int]],
+        result: SyncResult,
+    ) -> list[tuple[MediaItem, int]]:
+        """Trim to what the window allows, parking the remainder.
+
+        A dry run reports what would be held back but queues nothing, so that
+        previewing a list never changes what happens next.
+        """
+        if not config.pacing.enabled:
+            return candidates
+
+        allowance = self.allowance(config)
+        if allowance >= len(candidates):
+            return candidates
+
+        keep, defer = candidates[:allowance], candidates[allowance:]
+
+        if result.dry_run:
+            result.queued = len(defer)
+            log.info(
+                "[%s] Rate limit would hold back %d of %d titles.",
+                job.name,
+                len(defer),
+                len(candidates),
+            )
+            return keep
+
+        queued = self.db.enqueue(
+            job.id,
+            media,
+            [(ident, item.imdb_id or "", item.title, item.year) for item, ident in defer],
+        )
+        result.queued = queued
+        log.info(
+            "[%s] Rate limit: adding %d now, %d queued (%d/%d used in the last %d min).",
+            job.name,
+            len(keep),
+            queued,
+            config.pacing.max_adds - allowance,
+            config.pacing.max_adds,
+            config.pacing.window_minutes,
+        )
+        if not keep:
+            result.message = (
+                f"Rate limit reached; {queued} titles queued for the next window."
+            )
+        return keep
+
+    # -- releasing the queue -------------------------------------------------- #
+
+    def drain(self, limit: int) -> int:
+        """Release up to ``limit`` queued titles. Returns how many were added."""
+        backlog = self.db.queue_backlog()
+        if not backlog or limit <= 0:
+            return 0
+
+        config = self.store.config
+        # Share the window across the waiting lists, so one 1,000-title backlog
+        # does not starve a five-title one behind it.
+        share = max(1, limit // len(backlog))
+        released = 0
+        for entry in backlog:
+            remaining = limit - released
+            if remaining <= 0:
+                break
+            released += self._drain_one(
+                config, entry["list_id"], entry["media_type"], min(share, remaining)
+            )
+        return released
+
+    def _drain_one(self, config: AppConfig, list_id: str, media: str, take: int) -> int:
+        job = config.find_list(list_id)
+        if job is None:
+            dropped = self.db.queue_clear(list_id)
+            log.info("Dropped %d queued titles whose list no longer exists.", dropped)
+            return 0
+        if not job.enabled:
+            return 0
+        if self.is_running(list_id):
+            # A full sync is in flight and will be deciding what to add itself.
+            return 0
+
+        rows = self.db.queue_take(list_id, media, take)
+        if not rows:
+            return 0
+
+        try:
+            chosen = self._target_settings(config, job, media)
+        except SyncConfigError as exc:
+            log.warning("[%s] %d titles are queued but %s", job.name, len(rows), exc)
+            return 0
+
+        self._acquire(list_id)
+        run_id = self.db.start_run(job.id, job.name, media, False)
+        result = SyncResult(run_id=run_id, list_id=job.id, list_name=job.name)
+        try:
+            with self._build_client(chosen["target"], media) as arr:
+                library, library_imdb = arr.library_ids()
+
+                candidates: list[tuple[MediaItem, int]] = []
+                already: list[int] = []
+                for row in rows:
+                    item = MediaItem(
+                        ids={"imdb": row["imdb_id"]} if row["imdb_id"] else {},
+                        title=row["title"],
+                        year=row["year"],
+                    )
+                    item.ids["tmdb" if media == "movie" else "tvdb"] = row["target_id"]
+                    if row["target_id"] in library or (
+                        row["imdb_id"] and row["imdb_id"] in library_imdb
+                    ):
+                        # Added by hand, or by another list, while it waited.
+                        already.append(row["id"])
+                        result.existing += 1
+                        continue
+                    candidates.append((item, int(row["target_id"])))
+
+                self.db.queue_forget(already)
+                result.candidates = len(candidates)
+
+                if candidates:
+                    language_profile_id = None
+                    if media == "show" and config.sonarr.language_profile_id:
+                        if arr.supports_language_profiles():
+                            language_profile_id = config.sonarr.language_profile_id
+
+                    self._add_all(
+                        job=job,
+                        arr=arr,
+                        media=media,
+                        candidates=candidates,
+                        result=result,
+                        quality_profile_id=chosen["quality_profile_id"],
+                        root_folder=chosen["root_folder"],
+                        search_on_add=chosen["search_on_add"],
+                        tags=chosen["tags"],
+                        language_profile_id=language_profile_id,
+                        target=chosen["target"],
+                    )
+
+            # Forget every row that was attempted, successes and failures alike.
+            # A title that failed transiently is still on its list, so the next
+            # sync re-queues it; keeping it here instead would let one bad title
+            # block the queue forever.
+            self.db.queue_forget([int(row["id"]) for row in rows])
+
+            if result.failed and not result.added:
+                result.status = "error"
+            elif result.failed:
+                result.status = "partial"
+            still_waiting = self.db.queue_counts().get(list_id, 0)
+            result.message = (
+                f"Trickle: added {result.added} of {len(rows)} queued"
+                f"{f', {still_waiting} still waiting' if still_waiting else ''}."
+            )
+            log.info("[%s] %s", job.name, result.message)
+        except (ArrError, SyncConfigError) as exc:
+            result.status = "error"
+            result.message = f"Trickle failed: {exc}"
+            log.error("[%s] %s", job.name, result.message)
+        except Exception as exc:  # pragma: no cover - defensive
+            result.status = "error"
+            result.message = f"Trickle crashed: {exc}"
+            log.exception("[%s] Trickle crashed.", job.name)
+        finally:
+            self._release(list_id)
+            self.db.finish_run(
+                run_id,
+                result.status,
+                result.message,
+                candidates=result.candidates,
+                existing=result.existing,
+                added=result.added,
+                failed=result.failed,
+            )
+        return result.added
 
     # -- steps --------------------------------------------------------------- #
 
@@ -438,6 +660,10 @@ class SyncEngine:
                 self._dry_run_one(job, arr, media, item, ident, result)
             return
 
+        # Everything that reaches the target counts against the rate window,
+        # whichever route it took to get here.
+        before = result.added
+
         # Build a batch, then hand the whole thing to Radarr/Sonarr at once.
         # One request per 50 titles rather than 50 requests lets the target
         # resolve them against its metadata service in bulk, which is what
@@ -463,6 +689,7 @@ class SyncEngine:
                     time.sleep(settings.ADD_DELAY_SECONDS)
 
         self._flush_batch(job, arr, media, batch, batch_meta, result, settings_kwargs)
+        self.db.record_adds(result.added - before)
 
     def _record_for(
         self,

@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Add-rate limiting.** A first sync of a large list can hand hundreds of titles
+  to Radarr or Sonarr at once, and each one triggers an indexer search and a
+  download. Settings -> Add rate caps that at N titles per M minutes (10 per 10
+  by default) and parks the remainder in a queue that a background job drains as
+  capacity frees. The limit is global, since the download client is. The queue
+  survives restarts, the library is re-checked before anything is released so
+  nothing is added twice, a failed title is left to the next sync rather than
+  blocking the queue, and turning the limit off releases the backlog instead of
+  stranding it. Off by default.
 - **Letterboxd provider**: any public watchlist, list, or a member's watched
   films. No credential needed. Letterboxd has no public API and blocks their own
   list RSS feeds, so this reads the web pages; a list page carries a title and a

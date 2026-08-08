@@ -143,6 +143,9 @@ def radarr(monkeypatch):
                 if tmdb_id in state["fail"]:
                     continue  # omitted from the reply, so the engine retries it alone
                 state["added"].append((tmdb_id, payload))
+                # Real Radarr holds it from this point on, and a later sync sees
+                # it in the library rather than as something new.
+                state["library"].add(tmdb_id)
                 accepted.append({"tmdbId": tmdb_id})
             return accepted
 
@@ -225,6 +228,7 @@ def sonarr(monkeypatch):
                 if tvdb_id in state["fail"]:
                     continue
                 state["added"].append((tvdb_id, payload))
+                state["library"].add(tvdb_id)
                 accepted.append({"tvdbId": tvdb_id})
             return accepted
 

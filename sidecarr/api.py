@@ -22,6 +22,7 @@ from .config import (
     AppConfig,
     ListJob,
     MdblistConfig,
+    PacingConfig,
     PlexConfig,
     RadarrConfig,
     SonarrConfig,
@@ -527,12 +528,14 @@ def sonarr_test(payload: ConnectionTestRequest) -> dict[str, Any]:
 def list_jobs() -> dict[str, Any]:
     next_runs = scheduler.next_runs()
     running = engine.running_lists()
+    pending = db.queue_counts()
     return {
         "lists": [
             {
                 **job.model_dump(mode="json"),
                 "next_run": next_runs.get(job.id),
                 "running": job.id in running,
+                "queued": pending.get(job.id, 0),
                 "last_run": db.recent_runs(limit=1, list_id=job.id),
             }
             for job in store.config.lists
@@ -599,9 +602,14 @@ def delete_list(list_id: str) -> dict[str, Any]:
         config.lists = [job for job in config.lists if job.id != list_id]
 
     store.mutate(apply)
+    dropped = db.queue_clear(list_id)
     scheduler.reload()
-    log.info("Deleted the list %s.", list_id)
-    return {"deleted": list_id}
+    log.info(
+        "Deleted the list %s%s.",
+        list_id,
+        f" and {dropped} of its queued titles" if dropped else "",
+    )
+    return {"deleted": list_id, "queued_dropped": dropped}
 
 
 @app.post("/api/lists/{list_id}/run", dependencies=[Auth])
@@ -641,6 +649,47 @@ def set_scheduler(payload: SchedulerRequest) -> dict[str, Any]:
     return {"paused": payload.paused}
 
 
+class PacingRequest(BaseModel):
+    enabled: bool = False
+    max_adds: int = 10
+    window_minutes: int = 10
+
+
+@app.get("/api/pacing", dependencies=[Auth])
+def get_pacing() -> dict[str, Any]:
+    config = store.config
+    allowance = engine.allowance(config)
+    return {
+        **config.pacing.model_dump(mode="json"),
+        "queued": sum(db.queue_counts().values()),
+        "queued_by_list": db.queue_counts(),
+        "allowance": None if allowance < 0 else allowance,
+        "used_in_window": db.adds_since(config.pacing.window_minutes * 60),
+    }
+
+
+@app.put("/api/pacing", dependencies=[Auth])
+def set_pacing(payload: PacingRequest) -> dict[str, Any]:
+    def apply(config: AppConfig) -> None:
+        config.pacing = PacingConfig(**payload.model_dump())
+
+    store.mutate(apply)
+    log.info(
+        "Rate limit %s (%d titles per %d min).",
+        "on" if payload.enabled else "off",
+        payload.max_adds,
+        payload.window_minutes,
+    )
+    return get_pacing()
+
+
+@app.delete("/api/pacing/queue", dependencies=[Auth])
+def clear_queue(list_id: str = "") -> dict[str, Any]:
+    dropped = db.queue_clear(list_id or None)
+    log.info("Cleared %d queued titles.", dropped)
+    return {"dropped": dropped}
+
+
 @app.get("/api/runs", dependencies=[Auth])
 def runs(limit: int = 25, list_id: str = "") -> dict[str, Any]:
     return {"runs": db.recent_runs(limit=min(limit, 200), list_id=list_id or None)}
@@ -678,6 +727,12 @@ def status() -> dict[str, Any]:
         },
         "running": sorted(engine.running_lists()),
         "scheduler_paused": config.scheduler.paused,
+        "pacing": {
+            "enabled": config.pacing.enabled,
+            "max_adds": config.pacing.max_adds,
+            "window_minutes": config.pacing.window_minutes,
+            "queued": sum(db.queue_counts().values()),
+        },
         "next_runs": scheduler.next_runs(),
         "totals": db.totals(),
         "recent_runs": db.recent_runs(limit=10),

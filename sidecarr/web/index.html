@@ -228,6 +228,26 @@
       </div>
 
       <div class="card">
+        <h3>Add rate <span class="muted tiny">how fast titles reach Radarr and Sonarr</span></h3>
+        <p class="muted">
+          A first sync of a large list can hand over hundreds of titles at once,
+          and each one makes the target search every indexer and queue a download.
+          Turn this on to release them gradually instead; the rest wait in a queue
+          and go out as capacity frees up.
+        </p>
+        <label class="check"><input type="checkbox" id="pacing-enabled"> Limit the add rate</label>
+        <div class="field-row">
+          <label>Titles per window<input type="text" id="pacing-max" placeholder="10"></label>
+          <label>Window (minutes)<input type="text" id="pacing-window" placeholder="10"></label>
+        </div>
+        <p class="muted tiny" id="pacing-summary"></p>
+        <div class="button-row">
+          <button class="primary" id="save-pacing">Save</button>
+          <button class="ghost" id="clear-queue">Clear the queue</button>
+        </div>
+      </div>
+
+      <div class="card">
         <h3>Security</h3>
         <p class="muted">
           Sidecarr stores credentials for Radarr, Sonarr and every list provider

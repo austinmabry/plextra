@@ -333,7 +333,10 @@ async function renderLists() {
           ? el("span", { class: "pill warn" }, "running")
           : last
             ? el("span", { class: `pill ${statusClass(last.status)}` }, `${last.status} · ${last.added} added`)
-            : el("span", { class: "pill idle" }, "never run")),
+            : el("span", { class: "pill idle" }, "never run"),
+        job.queued
+          ? el("div", { class: "muted tiny" }, `${job.queued} queued`)
+          : null),
       el("td", { class: "actions" },
         el("button", { class: "tiny-btn", onclick: () => runJob(job.id, false), disabled: job.running || null }, "Run"),
         el("button", { class: "tiny-btn ghost", onclick: () => runJob(job.id, true), disabled: job.running || null }, "Dry run"),
@@ -551,12 +554,39 @@ async function renderSettings() {
   $("sonarr-series-type").value = config.sonarr.series_type;
   $("sonarr-season-folder").checked = config.sonarr.season_folder;
 
+  await renderPacing();
+
   // Load both in parallel: an unreachable instance should not make the other
   // one wait for its timeout.
   await Promise.all(["radarr", "sonarr"].map(async (kind) => {
     const usable = config[kind].enabled && config[kind].url && config[kind].api_key;
     applyArrMeta(kind, usable ? await ensureMeta(kind) : null);
   }));
+}
+
+async function renderPacing() {
+  let pacing;
+  try {
+    pacing = await api("/api/pacing");
+  } catch (exc) {
+    return;
+  }
+  $("pacing-enabled").checked = pacing.enabled;
+  $("pacing-max").value = pacing.max_adds;
+  $("pacing-window").value = pacing.window_minutes;
+
+  const parts = [];
+  if (pacing.enabled) {
+    const perHour = Math.round((pacing.max_adds * 60) / pacing.window_minutes);
+    parts.push(`About ${perHour} titles an hour.`);
+    parts.push(`${pacing.used_in_window} of ${pacing.max_adds} used in the current window.`);
+  }
+  if (pacing.queued) {
+    parts.push(`${pacing.queued} title${pacing.queued === 1 ? "" : "s"} waiting in the queue.`);
+  } else if (pacing.enabled) {
+    parts.push("Nothing waiting.");
+  }
+  $("pacing-summary").textContent = parts.join(" ");
 }
 
 function renderTraktAccounts(accounts) {
@@ -711,6 +741,31 @@ $("save-sonarr").addEventListener("click", async () => {
     await loadConfig();
     await ensureMeta("sonarr", true);
     toast("Sonarr settings saved.", "ok");
+  } catch (exc) {
+    toast(exc.message, "err");
+  }
+});
+
+$("save-pacing").addEventListener("click", async () => {
+  try {
+    await put("/api/pacing", {
+      enabled: $("pacing-enabled").checked,
+      max_adds: parseInt($("pacing-max").value, 10) || 10,
+      window_minutes: parseInt($("pacing-window").value, 10) || 10,
+    });
+    await renderPacing();
+    toast("Add rate saved.", "ok");
+  } catch (exc) {
+    toast(exc.message, "err");
+  }
+});
+
+$("clear-queue").addEventListener("click", async () => {
+  if (!confirm("Discard every title waiting in the queue? They will be picked up again on the next sync of their list.")) return;
+  try {
+    const result = await api("/api/pacing/queue", { method: "DELETE" });
+    await renderPacing();
+    toast(`Cleared ${result.dropped} queued title${result.dropped === 1 ? "" : "s"}.`, "ok");
   } catch (exc) {
     toast(exc.message, "err");
   }

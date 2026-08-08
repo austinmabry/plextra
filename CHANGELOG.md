@@ -51,6 +51,23 @@ All notable changes to this project are documented here. The format follows
   down is skipped with a log line instead of recording a failed run every few
   hours.
 
+### Fixed
+
+- A 5xx from Radarr's lookup endpoint is no longer reported as the title being
+  missing. Radarr's metadata service answers a genuine miss with a clean 404, so
+  a 500 means that service or the network to it failed — transient, and retried
+  on the next sync rather than written off.
+
+## [0.2.1]
+
+### Fixed
+
+- Titles already held under a *different* TMDb ID are matched on IMDb ID and
+  reported as already present, instead of failing late with "path is already
+  configured for an existing movie".
+- Dry run resolves each candidate, so it can no longer promise an add that the
+  real run will fail on.
+
 ## [0.2.0]
 
 ### Added
@@ -70,18 +87,6 @@ All notable changes to this project are documented here. The format follows
 - Filters run on a normalised item, so they behave identically across providers.
   A filter that cannot judge an item now names the provider that left the field
   empty, e.g. `no release year from IMDb`.
-
-### Fixed
-
-- A 5xx from Radarr's lookup endpoint is no longer reported as the title being
-  missing. Radarr's metadata service answers a genuine miss with a clean 404, so
-  a 500 means that service or the network to it failed — transient, and retried
-  on the next sync rather than written off.
-- Titles already held under a *different* TMDb ID are matched on IMDb ID and
-  reported as already present, instead of failing late with "path is already
-  configured for an existing movie".
-- Dry run resolves each candidate, so it can no longer promise an add that the
-  real run will fail on.
 
 ## [0.1.1]
 

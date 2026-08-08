@@ -579,7 +579,13 @@ async function renderPacing() {
   if (pacing.enabled) {
     const perHour = Math.round((pacing.max_adds * 60) / pacing.window_minutes);
     parts.push(`About ${perHour} titles an hour.`);
-    parts.push(`${pacing.used_in_window} of ${pacing.max_adds} used in the current window.`);
+    // used_in_window can exceed the cap right after it is lowered, so report the
+    // window as full rather than printing something like "200 of 25 used".
+    parts.push(
+      pacing.allowance > 0
+        ? `${pacing.allowance} of ${pacing.max_adds} still free in this window.`
+        : "Window full; more will go out as the earlier adds age out of it."
+    );
   }
   if (pacing.queued) {
     parts.push(`${pacing.queued} title${pacing.queued === 1 ? "" : "s"} waiting in the queue.`);

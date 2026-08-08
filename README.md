@@ -128,7 +128,7 @@ lists in and ignore the rest.
 | Provider | Needs | Lists it can pull |
 | --- | --- | --- |
 | **Trakt** | Client ID + secret; an account for private lists | Watchlist, custom list, collection, personal recommendations, trending, popular, anticipated, box office, most watched/played, by person |
-| **TMDb** | A free API key | Custom list, collection, company, keyword, person, popular, top rated, trending, upcoming, now playing, on the air, airing today |
+| **TMDb** | A free API key | Discover (incl. streaming services), custom list, collection, company, keyword, person, popular, top rated, trending, upcoming, now playing, on the air, airing today |
 | **MDBList** | A free API key | Any list by URL/slug/ID, your own lists, your watchlist, the public top lists |
 | **IMDb** | Nothing | Any public `ls…` list, plus the Top 250, Most Popular, Top English and box office charts |
 | **Plex** | A Plex token | Your Plex Discover watchlist |
@@ -136,6 +136,33 @@ lists in and ignore the rest.
 | **Another Radarr / Sonarr** | Its URL + API key | Mirror a second instance's library |
 | **Paste or file** | Nothing | A list pasted into the box, or a CSV/JSON file in `/config` |
 | **Custom list** | Nothing | Any URL returning JSON, RSS/Atom, CSV, or a list of IDs |
+
+### Discover, and "what's on Netflix"
+
+TMDb's Discover source answers the question no list can: *everything available on
+a given streaming service, in my country*. It needs only the TMDb API key you
+already have.
+
+Type service names, not IDs — `Netflix, Disney Plus` — and Sidecarr resolves
+them against TMDb's list for your region, suggesting the right spelling if you
+miss. `disney+` works as well as `Disney Plus`. Genres take names too. A region
+is required whenever you filter by service, because availability is per country.
+
+Some combinations worth knowing:
+
+| Want | Set |
+| --- | --- |
+| Everything on Netflix in the US | Region `US`, Streaming on `Netflix` |
+| Only what's included with the subscription | …and How it is available → *Included with a subscription* |
+| Highly-rated sci-fi, no obscurities | Genres `science fiction`, Order *Highest rated*, Minimum votes `200` |
+| Recent arrivals, roughly | Order *Newest first* |
+| Japanese animation on any service | Genres `animation`, Original language `ja` |
+
+Two honest limits. TMDb publishes what is available *now*, not when it was added,
+so there is no true "new this week on Netflix" — ordering by newest release date
+is the closest approximation. And setting *Highest rated* without a minimum vote
+count will hand you films with four votes and a perfect score; that is why the
+field is there.
 
 ### Paste or file
 

@@ -6,7 +6,9 @@ Person/Popular) and adds the show-side equivalents for Sonarr.
 
 from __future__ import annotations
 
+import difflib
 import logging
+import re
 from typing import Any
 
 from .base import (
@@ -40,6 +42,79 @@ _WINDOW = SourceField(
     choices=[{"value": "day", "label": "Today"}, {"value": "week", "label": "This week"}],
 )
 
+# -- Discover ---------------------------------------------------------------- #
+
+SORT_CHOICES = [
+    {"value": "popularity.desc", "label": "Most popular"},
+    {"value": "primary_release_date.desc", "label": "Newest first"},
+    {"value": "primary_release_date.asc", "label": "Oldest first"},
+    {"value": "vote_average.desc", "label": "Highest rated"},
+    {"value": "vote_count.desc", "label": "Most voted"},
+    {"value": "revenue.desc", "label": "Highest grossing"},
+    {"value": "title.asc", "label": "Title A-Z"},
+]
+
+MONETIZATION_CHOICES = [
+    {"value": "", "label": "Any way to watch"},
+    {"value": "flatrate", "label": "Included with a subscription"},
+    {"value": "free", "label": "Free"},
+    {"value": "ads", "label": "Free with ads"},
+    {"value": "rent", "label": "Rentable"},
+    {"value": "buy", "label": "Buyable"},
+]
+
+_REGION = SourceField(
+    "watch_region",
+    "Region",
+    placeholder="US",
+    required=False,
+    help="Two-letter country code. Required when filtering by streaming service.",
+)
+_WATCH_PROVIDERS = SourceField(
+    "watch_providers",
+    "Streaming on",
+    placeholder="Netflix, Disney Plus",
+    required=False,
+    help="Names or TMDb provider IDs, comma separated. Leave blank for any service.",
+)
+_MONETIZATION = SourceField(
+    "monetization",
+    "How it is available",
+    kind="select",
+    required=False,
+    default="",
+    choices=MONETIZATION_CHOICES,
+)
+_GENRES = SourceField(
+    "with_genres",
+    "Genres",
+    placeholder="science fiction, thriller",
+    required=False,
+    help="Names or TMDb genre IDs, comma separated. All of them must match.",
+)
+_LANGUAGE = SourceField(
+    "with_original_language",
+    "Original language",
+    placeholder="en",
+    required=False,
+    help="Two-letter language code.",
+)
+_SORT = SourceField(
+    "sort_by",
+    "Order",
+    kind="select",
+    required=False,
+    default="popularity.desc",
+    choices=SORT_CHOICES,
+)
+_MIN_VOTES = SourceField(
+    "min_votes",
+    "Minimum votes",
+    placeholder="200",
+    required=False,
+    help="Worth setting when ordering by rating, or a film with four votes wins.",
+)
+
 
 class TmdbProvider(HttpMixin, Provider):
     key = "tmdb"
@@ -48,6 +123,25 @@ class TmdbProvider(HttpMixin, Provider):
     setup_hint = "Add a TMDb API key (v3 auth) in Settings. It is free from themoviedb.org."
 
     source_types = (
+        SourceType(
+            "discover",
+            "Discover / streaming service",
+            fields=(
+                _REGION,
+                _WATCH_PROVIDERS,
+                _MONETIZATION,
+                _GENRES,
+                _LANGUAGE,
+                _SORT,
+                _MIN_VOTES,
+            ),
+            help=(
+                "Everything on a streaming service in your region, optionally narrowed "
+                "by genre and language. Note this is what is available now, not what "
+                "was added recently - TMDb does not publish an added-on date. Order by "
+                "newest first for something close to a 'new arrivals' list."
+            ),
+        ),
         SourceType("list", "Custom list", fields=(_LIST_ID,)),
         SourceType("collection", "Collection", media=("movie",), fields=(_COLLECTION_ID,)),
         SourceType("company", "Company", media=("movie",), fields=(_COMPANY_ID,)),
@@ -65,6 +159,7 @@ class TmdbProvider(HttpMixin, Provider):
     def __init__(self, config: Any) -> None:
         super().__init__(config)
         self._genres: dict[str, dict[int, str]] = {}
+        self._watch: dict[tuple[str, str], dict[str, int]] = {}
 
     # -- credentials -------------------------------------------------------- #
 
@@ -93,6 +188,8 @@ class TmdbProvider(HttpMixin, Provider):
         kind = "movie" if media_type == "movie" else "tv"
         source_type = source.type
 
+        if source_type == "discover":
+            return self._discover(media_type, self._discover_params(source, media_type), max_items)
         if source_type == "list":
             return self._list(source.get("list_id"), media_type)
         if source_type == "collection":
@@ -121,6 +218,101 @@ class TmdbProvider(HttpMixin, Provider):
         wanted = "movie" if media_type == "movie" else "tv"
         entries = [e for e in entries if e.get("media_type", wanted) == wanted]
         return self._items(entries, media_type)
+
+    # -- discover ------------------------------------------------------------ #
+
+    def _discover_params(self, source: Any, media_type: str) -> dict[str, Any]:
+        kind = "movie" if media_type == "movie" else "tv"
+        params: dict[str, Any] = {"sort_by": source.get("sort_by") or "popularity.desc"}
+
+        region = source.get("watch_region").strip().upper()
+        wanted_services = _split(source.get("watch_providers"))
+        if wanted_services and not region:
+            raise ProviderError(
+                "Filtering by streaming service needs a region too - TMDb reports "
+                "availability per country. Set it to your two-letter country code."
+            )
+        if region:
+            params["watch_region"] = region
+        if wanted_services:
+            params["with_watch_providers"] = "|".join(
+                str(i) for i in self._service_ids(wanted_services, kind, region)
+            )
+        monetization = source.get("monetization").strip()
+        if monetization:
+            if not region:
+                raise ProviderError(
+                    "Filtering by how something is available needs a region too."
+                )
+            params["with_watch_monetization_types"] = monetization
+
+        genres = _split(source.get("with_genres"))
+        if genres:
+            params["with_genres"] = ",".join(str(i) for i in self._genre_ids(genres, media_type))
+
+        language = source.get("with_original_language").strip().lower()
+        if language:
+            params["with_original_language"] = language
+
+        min_votes = _int(source.get("min_votes"))
+        if min_votes:
+            params["vote_count.gte"] = min_votes
+
+        return params
+
+    def _service_ids(self, wanted: list[str], kind: str, region: str) -> list[int]:
+        """Turn "Netflix, Disney Plus" into the provider IDs discover expects."""
+        available = self._watch_providers(kind, region)
+        resolved: list[int] = []
+        unknown: list[str] = []
+        for name in wanted:
+            if name.isdigit():
+                resolved.append(int(name))
+                continue
+            found = available.get(_normalise(name))
+            if found is None:
+                unknown.append(name)
+            else:
+                resolved.append(found)
+
+        if unknown:
+            suggestions = _closest(unknown[0], available)
+            hint = f" Did you mean {suggestions}?" if suggestions else ""
+            raise ProviderError(
+                f"TMDb lists no streaming service called {unknown[0]!r} in {region}.{hint}"
+            )
+        return resolved
+
+    def _watch_providers(self, kind: str, region: str) -> dict[str, int]:
+        key = (kind, region)
+        if key not in self._watch:
+            payload = self._get(f"/watch/providers/{kind}", {"watch_region": region})
+            self._watch[key] = {
+                _normalise(entry["provider_name"]): int(entry["provider_id"])
+                for entry in payload.get("results") or []
+                if entry.get("provider_name") and entry.get("provider_id")
+            }
+            if not self._watch[key]:
+                raise ProviderError(
+                    f"TMDb knows no streaming services for region {region!r}. "
+                    "Check the country code."
+                )
+        return self._watch[key]
+
+    def _genre_ids(self, wanted: list[str], media_type: str) -> list[int]:
+        by_name = {_normalise(name): gid for gid, name in self._genre_map(media_type).items()}
+        resolved: list[int] = []
+        for name in wanted:
+            if name.isdigit():
+                resolved.append(int(name))
+                continue
+            found = by_name.get(_normalise(name))
+            if found is None:
+                suggestions = _closest(name, by_name)
+                hint = f" Did you mean {suggestions}?" if suggestions else ""
+                raise ProviderError(f"TMDb has no genre called {name!r}.{hint}")
+            resolved.append(found)
+        return resolved
 
     def _discover(self, media_type: str, params: dict[str, Any], max_items: int) -> list[MediaItem]:
         kind = "movie" if media_type == "movie" else "tv"
@@ -239,3 +431,27 @@ def _float(value: Any) -> float | None:
         return float(value) if value not in (None, "") else None
     except (TypeError, ValueError):
         return None
+
+
+def _split(value: str) -> list[str]:
+    return [part.strip() for part in str(value or "").split(",") if part.strip()]
+
+
+def _normalise(name: str) -> str:
+    """Compare service and genre names the forgiving way people type them.
+
+    "Disney Plus", "disney+" and "Disney  Plus" all mean the same service, and
+    "Sci-Fi" is TMDb's "Science Fiction" often enough to be worth folding.
+    """
+    text = str(name or "").strip().lower().replace("+", " plus ")
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _closest(name: str, options: dict[str, Any]) -> str:
+    """A short "did you mean" list, so a typo does not need a docs trip."""
+    matches = difflib.get_close_matches(_normalise(name), list(options), n=3, cutoff=0.6)
+    if not matches:
+        needle = _normalise(name)
+        matches = [key for key in options if needle and needle in key][:3]
+    return ", ".join(repr(m) for m in matches)

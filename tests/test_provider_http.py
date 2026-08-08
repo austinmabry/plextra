@@ -39,7 +39,11 @@ class StubHandler(BaseHTTPRequestHandler):
 
         # ---- TMDb ----------------------------------------------------------
         if path == "/3/genre/movie/list":
-            return self._send(200, {"genres": [{"id": 18, "name": "Drama"}]})
+            return self._send(200, {"genres": [
+                {"id": 18, "name": "Drama"},
+                {"id": 878, "name": "Science Fiction"},
+                {"id": 53, "name": "Thriller"},
+            ]})
         if path == "/3/genre/tv/list":
             return self._send(200, {"genres": []})
         if path == "/3/movie/popular":
@@ -62,6 +66,14 @@ class StubHandler(BaseHTTPRequestHandler):
             return self._send(200, {"results": [{"id": 7, "title": "Discovered"}], "total_pages": 1})
         if path == "/3/configuration":
             return self._send(200, {"images": {}})
+        if path == "/3/watch/providers/movie":
+            if query.get("watch_region") == "ZZ":
+                return self._send(200, {"results": []})
+            return self._send(200, {"results": [
+                {"provider_id": 8, "provider_name": "Netflix"},
+                {"provider_id": 337, "provider_name": "Disney Plus"},
+                {"provider_id": 1899, "provider_name": "Max"},
+            ]})
 
         # ---- MDBList -------------------------------------------------------
         if path.startswith("/lists/") and path.endswith("/items"):
@@ -186,6 +198,148 @@ class TestTmdb:
         provider.resolve_ids(item, "show")
         assert item.ids["tvdb"] == 371980
         assert item.ids["imdb"] == "tt11280740"
+
+
+class TestTmdbDiscover:
+    """The streaming-service source. Users type names, TMDb wants numeric IDs."""
+
+    @pytest.fixture
+    def provider(self, config, stub, monkeypatch):
+        monkeypatch.setattr("sidecarr.providers.tmdb.BASE", f"{stub}/3")
+        config.tmdb.api_key = "tmdb-key"
+        p = providers.build("tmdb", config)
+        yield p
+        p.close()
+
+    def discover_query(self):
+        return next(q for path, q in REQUESTS if path == "/3/discover/movie")
+
+    def test_a_service_name_becomes_its_id(self, provider):
+        provider.fetch(source("tmdb", "discover", watch_region="US", watch_providers="Netflix"), "movie")
+        query = self.discover_query()
+        assert query["with_watch_providers"] == "8"
+        assert query["watch_region"] == "US"
+
+    def test_several_services_are_ored_together(self, provider):
+        """Pipe means "on any of these", which is what people expect."""
+        provider.fetch(
+            source("tmdb", "discover", watch_region="US", watch_providers="Netflix, Disney Plus"),
+            "movie",
+        )
+        assert self.discover_query()["with_watch_providers"] == "8|337"
+
+    def test_punctuation_and_case_in_a_service_name_are_forgiven(self, provider):
+        provider.fetch(
+            source("tmdb", "discover", watch_region="US", watch_providers="disney+"), "movie"
+        )
+        assert self.discover_query()["with_watch_providers"] == "337"
+
+    def test_numeric_ids_pass_straight_through(self, provider):
+        provider.fetch(
+            source("tmdb", "discover", watch_region="US", watch_providers="8, 1899"), "movie"
+        )
+        assert self.discover_query()["with_watch_providers"] == "8|1899"
+
+    def test_an_unknown_service_suggests_a_real_one(self, provider):
+        with pytest.raises(ProviderError, match="Did you mean 'netflix'"):
+            provider.fetch(
+                source("tmdb", "discover", watch_region="US", watch_providers="netflicks"), "movie"
+            )
+
+    def test_a_service_without_a_region_is_refused_before_any_request(self, provider):
+        with pytest.raises(ProviderError, match="needs a region"):
+            provider.fetch(source("tmdb", "discover", watch_providers="Netflix"), "movie")
+        assert REQUESTS == []
+
+    def test_a_region_tmdb_does_not_know_is_reported(self, provider):
+        with pytest.raises(ProviderError, match="no streaming services for region"):
+            provider.fetch(
+                source("tmdb", "discover", watch_region="ZZ", watch_providers="Netflix"), "movie"
+            )
+
+    def test_genre_names_become_ids(self, provider):
+        provider.fetch(source("tmdb", "discover", with_genres="Science Fiction, Thriller"), "movie")
+        assert self.discover_query()["with_genres"] == "878,53"
+
+    def test_genres_are_anded_not_ored(self, provider):
+        """A comma is AND in TMDb's syntax; "sci-fi thriller" means both."""
+        provider.fetch(source("tmdb", "discover", with_genres="Science Fiction, Thriller"), "movie")
+        assert "|" not in self.discover_query()["with_genres"]
+
+    def test_an_unknown_genre_is_reported(self, provider):
+        with pytest.raises(ProviderError, match="no genre called"):
+            provider.fetch(source("tmdb", "discover", with_genres="Westerns And Such"), "movie")
+
+    def test_monetization_needs_a_region_too(self, provider):
+        with pytest.raises(ProviderError, match="needs a region"):
+            provider.fetch(source("tmdb", "discover", monetization="flatrate"), "movie")
+
+    def test_monetization_is_passed_through(self, provider):
+        provider.fetch(
+            source("tmdb", "discover", watch_region="GB", monetization="flatrate"), "movie"
+        )
+        assert self.discover_query()["with_watch_monetization_types"] == "flatrate"
+
+    def test_sort_defaults_to_popularity(self, provider):
+        provider.fetch(source("tmdb", "discover"), "movie")
+        assert self.discover_query()["sort_by"] == "popularity.desc"
+
+    def test_sort_can_be_chosen(self, provider):
+        provider.fetch(source("tmdb", "discover", sort_by="vote_average.desc"), "movie")
+        assert self.discover_query()["sort_by"] == "vote_average.desc"
+
+    def test_minimum_votes_is_sent(self, provider):
+        provider.fetch(source("tmdb", "discover", min_votes="200"), "movie")
+        assert self.discover_query()["vote_count.gte"] == "200"
+
+    def test_language_is_sent(self, provider):
+        provider.fetch(source("tmdb", "discover", with_original_language="JA"), "movie")
+        assert self.discover_query()["with_original_language"] == "ja"
+
+    def test_blank_fields_are_not_sent_at_all(self, provider):
+        provider.fetch(source("tmdb", "discover"), "movie")
+        query = self.discover_query()
+        for key in (
+            "watch_region", "with_watch_providers", "with_genres",
+            "with_original_language", "vote_count.gte", "with_watch_monetization_types",
+        ):
+            assert key not in query
+
+    def test_the_service_list_is_fetched_once_per_region(self, provider):
+        provider.fetch(
+            source("tmdb", "discover", watch_region="US", watch_providers="Netflix"), "movie"
+        )
+        provider.fetch(
+            source("tmdb", "discover", watch_region="US", watch_providers="Max"), "movie"
+        )
+        assert [p for p, _ in REQUESTS].count("/3/watch/providers/movie") == 1
+
+    def test_it_actually_returns_items(self, provider):
+        items = provider.fetch(
+            source("tmdb", "discover", watch_region="US", watch_providers="Netflix"), "movie"
+        )
+        assert [i.title for i in items] == ["Discovered"]
+
+
+class TestTmdbUnchanged:
+    @pytest.fixture
+    def provider(self, config, stub, monkeypatch):
+        monkeypatch.setattr("sidecarr.providers.tmdb.BASE", f"{stub}/3")
+        config.tmdb.api_key = "tmdb-key"
+        p = providers.build("tmdb", config)
+        yield p
+        p.close()
+
+    def test_company_still_uses_discover_without_the_new_params(self, provider):
+        provider.fetch(source("tmdb", "company", company_id="420"), "movie")
+        query = next(q for path, q in REQUESTS if path == "/3/discover/movie")
+        assert query["with_companies"] == "420"
+        assert "sort_by" not in query
+
+    def test_keyword_still_works(self, provider):
+        provider.fetch(source("tmdb", "keyword", keyword_id="180547"), "movie")
+        query = next(q for path, q in REQUESTS if path == "/3/discover/movie")
+        assert query["with_keywords"] == "180547"
 
 
 class TestMdblist:

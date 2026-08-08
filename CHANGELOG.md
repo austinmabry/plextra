@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **TMDb Discover, including streaming services.** A new TMDb source for
+  "everything on Netflix in my region", narrowed by genre, original language,
+  availability type and minimum vote count, in any of seven orders. Service and
+  genre names are accepted rather than TMDb's numeric IDs and resolved for the
+  chosen region, with a "did you mean" on a typo. Needs no credential beyond the
+  TMDb key. TMDb publishes availability, not an added-on date, so this is what is
+  streamable now rather than what arrived this week.
 - **Paste or file provider.** A list pasted into the editor, or a CSV/JSON file
   in the config volume, with no API involved. Reads the official Letterboxd and
   IMDb exports as they come, which matters because neither service has a usable

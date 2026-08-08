@@ -53,6 +53,86 @@ class TestCsrf:
         raw_client.post("/api/lists", json={"name": "Injected"})
         assert raw_client.get("/api/lists").json()["lists"] == []
 
+    def test_the_refusal_mentions_the_upgrade_case(self, raw_client):
+        detail = raw_client.post("/api/lists", json={}).json()["detail"]
+        assert "cache" in detail
+
+    def test_a_cross_site_request_is_still_refused_with_the_cookie(self, raw_client):
+        """The cookie rides along on a cross-site POST; only the header cannot."""
+        raw_client.get("/api/health")
+        response = raw_client.post(
+            "/api/lists", json={"name": "Injected"}, headers={"Sec-Fetch-Site": "cross-site"}
+        )
+        assert response.status_code == 403
+        assert raw_client.get("/api/lists").json()["lists"] == []
+
+    def test_same_site_is_not_enough(self, raw_client):
+        """A sibling subdomain is not this origin, so it gets no free pass."""
+        raw_client.get("/api/health")
+        response = raw_client.post(
+            "/api/lists", json={"name": "Injected"}, headers={"Sec-Fetch-Site": "same-site"}
+        )
+        assert response.status_code == 403
+
+
+class TestStaleClientAfterUpgrade:
+    """0.3.0 added CSRF, so a browser still running a cached 0.2.x app.js sent no
+    token at all and every Run, Save and Delete came back 403. The browser's own
+    Sec-Fetch-Site is proof enough that such a request is not cross-site."""
+
+    def test_a_cached_pre_csrf_client_still_works(self, raw_client):
+        response = raw_client.post(
+            "/api/lists",
+            json={"name": "From an old page"},
+            headers={"Sec-Fetch-Site": "same-origin"},
+        )
+        assert response.status_code == 200
+
+    def test_it_works_without_the_cookie_at_all(self, raw_client):
+        response = raw_client.post(
+            "/api/lists", json={"name": "No cookie"}, headers={"Sec-Fetch-Site": "same-origin"}
+        )
+        assert response.status_code == 200
+
+    def test_a_direct_navigation_counts_as_same_origin(self, raw_client):
+        response = raw_client.post(
+            "/api/lists", json={"name": "Typed in"}, headers={"Sec-Fetch-Site": "none"}
+        )
+        assert response.status_code == 200
+
+
+class TestAssetCaching:
+    """The stale-cache trap that broke 0.3.0 must not be reachable again."""
+
+    def test_asset_urls_carry_a_version(self, client):
+        body = client.get("/").text
+        assert "/static/app.js?v=" in body
+        assert "/static/style.css?v=" in body
+
+    def test_the_page_itself_is_never_cached(self, client):
+        assert client.get("/").headers["Cache-Control"] == "no-store"
+
+    def test_assets_must_be_revalidated(self, client):
+        assert client.get("/static/app.js").headers["Cache-Control"] == "no-cache"
+
+    def test_the_version_changes_when_an_asset_changes(self, client, monkeypatch, tmp_path):
+        from sidecarr import api as api_module
+
+        before = api_module.asset_version()
+
+        static = tmp_path / "static"
+        static.mkdir()
+        (static / "app.js").write_text("// different")
+        (static / "style.css").write_text("/* different */")
+        monkeypatch.setattr(api_module.settings, "WEB_DIR", tmp_path)
+
+        assert api_module.asset_version() != before
+
+    def test_the_version_is_stable_across_calls(self, client):
+        from sidecarr import api as api_module
+
+        assert api_module.asset_version() == api_module.asset_version()
+
 
 class TestSecurityHeaders:
     def test_headers_are_set(self, client):

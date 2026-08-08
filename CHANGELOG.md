@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Upgrading to 0.3.0 broke every button in the UI** until the browser was
+  force-reloaded. 0.3.0 started enforcing CSRF, but a browser holding a cached
+  `app.js` from 0.2.x sent no token, so Run, Dry run, Save and Delete all came
+  back "Missing or invalid CSRF token". Two changes, either of which alone would
+  have prevented it:
+  - `Sec-Fetch-Site: same-origin` is now accepted as proof a request is not
+    cross-site. Browsers set that header themselves and scripts cannot forge it,
+    so this costs nothing in protection - a cross-site page still gets refused -
+    and a stale page keeps working.
+  - Asset URLs carry a hash of their contents and the page that references them
+    is served `Cache-Control: no-store`, so a stale script cannot be served
+    again after any future upgrade.
+
 ## [0.3.0] - 2026-08-08
 
 ### Changed

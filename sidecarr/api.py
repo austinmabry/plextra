@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -45,6 +45,14 @@ SESSION_MAX_AGE = 30 * 24 * 60 * 60
 CSRF_COOKIE = "sidecarr_csrf"
 CSRF_HEADER = "x-csrf-token"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# Fetch metadata. Browsers set this themselves and scripts cannot override it,
+# so "same-origin" is proof the request did not come from another site. It is a
+# second, independent proof alongside the double-submit token: a page cached
+# from before the token existed still passes, while a cross-site page - which
+# gets "cross-site" - still does not.
+FETCH_SITE_HEADER = "sec-fetch-site"
+SAME_SITE_VALUES = frozenset({"same-origin", "none"})
 
 # 'unsafe-inline' is needed for style only: the markup carries a few inline
 # style attributes. All script lives in static files, so script-src stays strict.
@@ -160,6 +168,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Sidecarr", version=__version__, lifespan=lifespan)
 
 
+def same_origin(request: Request) -> bool:
+    """True when the browser itself vouches that this is not a cross-site request.
+
+    Scripts cannot set Sec-Fetch-Site - it is a forbidden header name - so a page
+    on another origin cannot claim "same-origin". Browsers too old to send it at
+    all leave the header absent, and those fall back to the token.
+    """
+    site = request.headers.get(FETCH_SITE_HEADER, "").strip().lower()
+    return site in SAME_SITE_VALUES
+
+
 @app.middleware("http")
 async def security(request: Request, call_next):
     """Double-submit CSRF protection, plus the usual response headers.
@@ -173,16 +192,18 @@ async def security(request: Request, call_next):
     """
     token = request.cookies.get(CSRF_COOKIE, "")
 
-    if request.method not in SAFE_METHODS:
+    if request.method not in SAFE_METHODS and not same_origin(request):
         sent = request.headers.get(CSRF_HEADER, "")
         if not token or not sent or not hmac.compare_digest(sent, token):
             return JSONResponse(
                 status_code=403,
                 content={
                     "detail": (
-                        "Missing or invalid CSRF token. Reload the page. Scripted "
-                        "clients should read the sidecarr_csrf cookie from any GET "
-                        "and send it back in the X-CSRF-Token header."
+                        "Missing or invalid CSRF token. Force-reload the page - after "
+                        "an upgrade the browser can still be running the previous "
+                        "version from cache. Scripted clients should read the "
+                        "sidecarr_csrf cookie from any GET and send it back in the "
+                        "X-CSRF-Token header."
                     )
                 },
             )
@@ -198,6 +219,12 @@ async def security(request: Request, call_next):
             samesite="lax",
             secure=settings.COOKIE_SECURE,
         )
+
+    # Assets are requested with a content hash, so revalidating costs one 304 and
+    # guarantees an upgrade is picked up. Safari in particular will otherwise
+    # reuse a script for days without asking.
+    if request.url.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
 
     response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -665,10 +692,42 @@ app.mount(
     "/static", StaticFiles(directory=settings.WEB_DIR / "static"), name="static"
 )
 
+STATIC_ASSETS = ("app.js", "style.css")
+
+
+def asset_version() -> str:
+    """A short hash of the front-end assets, used to bust browser caches.
+
+    An upgrade that changes app.js while the browser keeps serving the previous
+    one from cache leaves the UI talking to a server it no longer matches - which
+    is exactly how 0.3.0 broke every mutating request for anyone who had loaded
+    0.2.x. Content-addressed URLs make that impossible.
+    """
+    digest = hashlib.sha256()
+    for name in STATIC_ASSETS:
+        digest.update((settings.WEB_DIR / "static" / name).read_bytes())
+    return digest.hexdigest()[:12]
+
+
+def build_index() -> str:
+    html = (settings.WEB_DIR / "index.html").read_text()
+    version = asset_version()
+    for name in STATIC_ASSETS:
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={version}")
+    return html
+
+
+_index_html: str | None = None
+
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(settings.WEB_DIR / "index.html")
+def index() -> HTMLResponse:
+    global _index_html
+    if _index_html is None:
+        _index_html = build_index()
+    # The page names the exact asset versions it needs, so it must never itself
+    # be served from cache.
+    return HTMLResponse(_index_html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/favicon.svg")

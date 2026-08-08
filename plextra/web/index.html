@@ -36,6 +36,7 @@
       <button class="nav-item" data-view="logs">Logs</button>
     </nav>
     <div class="sidebar-foot">
+      <button id="theme-toggle" class="link" title="Switch between light and dark">Theme</button>
       <button id="logout" class="link hidden">Sign out</button>
     </div>
   </aside>
@@ -45,7 +46,10 @@
 
     <!-- Dashboard -->
     <section id="view-dashboard" class="view">
-      <h2>Dashboard</h2>
+      <div class="view-head">
+        <h2>Dashboard</h2>
+        <button class="ghost" id="scheduler-toggle">Pause scheduler</button>
+      </div>
       <div class="grid" id="status-cards"></div>
       <h3>Recent activity</h3>
       <div id="dashboard-runs"></div>

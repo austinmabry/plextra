@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import secrets
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -40,6 +41,23 @@ log = logging.getLogger("plextra.api")
 
 COOKIE_NAME = "plextra_session"
 SESSION_MAX_AGE = 30 * 24 * 60 * 60
+
+CSRF_COOKIE = "plextra_csrf"
+CSRF_HEADER = "x-csrf-token"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# 'unsafe-inline' is needed for style only: the markup carries a few inline
+# style attributes. All script lives in static files, so script-src stays strict.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "img-src 'self' data:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "connect-src 'self'; "
+    "form-action 'self'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'"
+)
 
 engine: SyncEngine
 scheduler: SyncScheduler
@@ -138,6 +156,53 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Plextra", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def security(request: Request, call_next):
+    """Double-submit CSRF protection, plus the usual response headers.
+
+    Everything here mutates something real - adding titles to a library,
+    rewriting credentials - and it is authenticated by a cookie, so a page on
+    another site could otherwise drive it just by knowing the port. The token
+    lives in a readable cookie that the UI echoes back in a header; a
+    cross-origin page can send the cookie but cannot read it, so it cannot
+    produce the header.
+    """
+    token = request.cookies.get(CSRF_COOKIE, "")
+
+    if request.method not in SAFE_METHODS:
+        sent = request.headers.get(CSRF_HEADER, "")
+        if not token or not sent or not hmac.compare_digest(sent, token):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": (
+                        "Missing or invalid CSRF token. Reload the page. Scripted "
+                        "clients should read the plextra_csrf cookie from any GET "
+                        "and send it back in the X-CSRF-Token header."
+                    )
+                },
+            )
+
+    response = await call_next(request)
+
+    if not token:
+        response.set_cookie(
+            CSRF_COOKIE,
+            secrets.token_urlsafe(32),
+            max_age=SESSION_MAX_AGE,
+            httponly=False,  # the UI has to read it
+            samesite="lax",
+            secure=settings.COOKIE_SECURE,
+        )
+
+    response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    return response
 
 
 @app.exception_handler(SyncConfigError)
@@ -535,6 +600,18 @@ def run_list(list_id: str, dry_run: bool = False) -> JSONResponse:
 # --------------------------------------------------------------------------- #
 
 
+class SchedulerRequest(BaseModel):
+    paused: bool
+
+
+@app.put("/api/scheduler", dependencies=[Auth])
+def set_scheduler(payload: SchedulerRequest) -> dict[str, Any]:
+    """Pause or resume every schedule at once, for maintenance windows."""
+    store.mutate(lambda config: setattr(config.scheduler, "paused", payload.paused))
+    log.info("Scheduler %s.", "paused" if payload.paused else "resumed")
+    return {"paused": payload.paused}
+
+
 @app.get("/api/runs", dependencies=[Auth])
 def runs(limit: int = 25, list_id: str = "") -> dict[str, Any]:
     return {"runs": db.recent_runs(limit=min(limit, 200), list_id=list_id or None)}
@@ -571,6 +648,7 @@ def status() -> dict[str, Any]:
             "enabled": sum(1 for job in config.lists if job.enabled),
         },
         "running": sorted(engine.running_lists()),
+        "scheduler_paused": config.scheduler.paused,
         "next_runs": scheduler.next_runs(),
         "totals": db.totals(),
         "recent_runs": db.recent_runs(limit=10),

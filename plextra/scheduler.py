@@ -106,6 +106,17 @@ class SyncScheduler:
     def _run_job(self, list_id: str) -> None:
         job = self.store.config.find_list(list_id)
         name = job.name if job else list_id
+
+        if self.store.config.scheduler.paused:
+            log.info("Scheduler is paused; skipping %r.", name)
+            return
+
+        # Skip rather than record a failure when the target is simply down.
+        problem = self.engine.preflight(list_id)
+        if problem:
+            log.warning("Skipping the scheduled run of %r: %s", name, problem)
+            return
+
         try:
             self.engine.run(list_id)
         except SyncAlreadyRunning:

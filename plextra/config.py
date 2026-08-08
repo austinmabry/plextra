@@ -21,6 +21,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from . import settings
+from .crypto import SecretBox, transform_secrets
 
 log = logging.getLogger(__name__)
 
@@ -223,6 +224,12 @@ class PlexConfig(BaseModel):
     token: str = ""
 
 
+class SchedulerConfig(BaseModel):
+    """Global scheduler state, for maintenance windows."""
+
+    paused: bool = False
+
+
 class AuthConfig(BaseModel):
     password_hash: str = ""
     secret_key: str = Field(default_factory=lambda: secrets.token_hex(32))
@@ -241,6 +248,7 @@ class AppConfig(BaseModel):
     radarr: RadarrConfig = Field(default_factory=RadarrConfig)
     sonarr: SonarrConfig = Field(default_factory=SonarrConfig)
     lists: list[ListJob] = Field(default_factory=list)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
     def find_list(self, list_id: str) -> ListJob | None:
@@ -259,6 +267,14 @@ class ConfigStore:
         self.path = Path(path) if path else settings.CONFIG_FILE
         self._lock = threading.RLock()
         self._config: AppConfig | None = None
+        self._box: SecretBox | None = None
+
+    @property
+    def box(self) -> SecretBox:
+        """Lazily built so the key file lands beside the config."""
+        if self._box is None:
+            self._box = SecretBox(self.path.parent, settings.SECRET_KEY)
+        return self._box
 
     # -- loading ----------------------------------------------------------- #
 
@@ -275,6 +291,10 @@ class ConfigStore:
                     ) from exc
 
             first_run = not raw
+            # Credentials are stored encrypted. Anything still in plaintext -
+            # a config written before this existed - passes through and is
+            # re-written encrypted by the save below.
+            transform_secrets(raw, self.box.decrypt)
             self._config = AppConfig.model_validate(raw)
 
             # Seed the password from the environment only when none is set yet,
@@ -301,7 +321,9 @@ class ConfigStore:
             if self._config is None:
                 return
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            payload = self._config.model_dump(mode="json")
+            payload = transform_secrets(
+                self._config.model_dump(mode="json"), self.box.encrypt
+            )
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
             tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), "utf-8")
             # The file holds API keys and OAuth tokens in the clear, same as

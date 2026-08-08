@@ -76,6 +76,7 @@ class ArrClient:
         params: dict[str, Any] | None = None,
         json_body: Any = None,
         max_attempts: int | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         url = urljoin(self.base_url, path.lstrip("/"))
         max_attempts = self.retries if max_attempts is None else max_attempts
@@ -84,7 +85,13 @@ class ArrClient:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                response = self._client.request(method, url, params=params, json=json_body)
+                response = self._client.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json_body,
+                    **({"timeout": timeout} if timeout is not None else {}),
+                )
             except httpx.HTTPError as exc:
                 last_error = str(exc)
                 log.warning("%s request to %s failed: %s", self.service, path, exc)

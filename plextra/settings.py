@@ -25,6 +25,10 @@ LOG_LEVEL = os.environ.get("PLEXTRA_LOG_LEVEL", "INFO").upper()
 # this is ignored unless the stored hash is empty.
 ENV_PASSWORD = os.environ.get("PLEXTRA_PASSWORD") or None
 
+# Passphrase for encrypting stored credentials. When set, the key never touches
+# the config volume. When unset, a random key is generated into /config.
+SECRET_KEY = os.environ.get("PLEXTRA_SECRET_KEY") or None
+
 # Session cookie is marked Secure only when Plextra is served over HTTPS.
 COOKIE_SECURE = _bool_env("PLEXTRA_COOKIE_SECURE", False)
 
@@ -35,3 +39,7 @@ MAX_TRAKT_PAGES = int(os.environ.get("PLEXTRA_MAX_TRAKT_PAGES", "20"))
 
 # Seconds to wait between consecutive add requests to Radarr/Sonarr.
 ADD_DELAY_SECONDS = float(os.environ.get("PLEXTRA_ADD_DELAY", "0.5"))
+
+# Titles per bulk add. Radarr and Sonarr resolve a batch against their metadata
+# service in one go, which is far kinder than one request per title.
+BULK_BATCH_SIZE = int(os.environ.get("PLEXTRA_BULK_BATCH_SIZE", "50"))

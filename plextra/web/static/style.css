@@ -1,4 +1,7 @@
-:root {
+/* Every colour is a token, so the light theme is a token swap rather than a
+   parallel stylesheet. data-theme on <html> wins; otherwise follow the OS. */
+:root,
+:root[data-theme="dark"] {
   --bg: #14171c;
   --panel: #1c2027;
   --panel-2: #232832;
@@ -6,10 +9,47 @@
   --text: #e6e9ef;
   --muted: #8b93a3;
   --accent: #4c9aff;
+  --on-accent: #08111f;
   --ok: #3fb950;
   --warn: #d29922;
   --err: #f85149;
+  --log-bg: #0f1116;
+  --overlay: rgba(8, 10, 14, 0.75);
   --radius: 8px;
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --panel-2: #eef1f6;
+  --line: #d6dbe4;
+  --text: #1a1f28;
+  --muted: #5d6675;
+  --accent: #1266d6;
+  --on-accent: #ffffff;
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --err: #cf222e;
+  --log-bg: #ffffff;
+  --overlay: rgba(20, 23, 28, 0.45);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f6fa;
+    --panel: #ffffff;
+    --panel-2: #eef1f6;
+    --line: #d6dbe4;
+    --text: #1a1f28;
+    --muted: #5d6675;
+    --accent: #1266d6;
+    --on-accent: #ffffff;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --err: #cf222e;
+    --log-bg: #ffffff;
+    --overlay: rgba(20, 23, 28, 0.45);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -129,7 +169,7 @@ button {
 }
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #08111f; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 button.ghost { background: transparent; }
 button.danger { color: var(--err); }
 button.link { background: none; border: none; color: var(--accent); padding: 4px; }
@@ -157,7 +197,7 @@ td.actions button { margin-left: 4px; }
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 14, 0.75);
+  background: var(--overlay);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -199,7 +239,7 @@ td.actions button { margin-left: 4px; }
 /* Logs -------------------------------------------------------------------- */
 
 .logs {
-  background: #0f1116;
+  background: var(--log-bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;

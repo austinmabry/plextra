@@ -92,6 +92,29 @@ class SyncEngine:
         with self._guard:
             self._running.discard(list_id)
 
+    def preflight(self, list_id: str) -> str | None:
+        """Check the target answers before a scheduled run starts.
+
+        A Radarr that is down for maintenance would otherwise produce a failed
+        run every few hours, burying the failures that mean something.
+        """
+        config = self.store.config
+        job = config.find_list(list_id)
+        if job is None:
+            return f"No list with id {list_id!r}."
+
+        target = config.radarr if job.media_type == "movie" else config.sonarr
+        name = "Radarr" if job.media_type == "movie" else "Sonarr"
+        if not target.configured:
+            return f"{name} is not enabled or not configured."
+
+        try:
+            with self._build_client(target, job.media_type) as arr:
+                arr.system_status()
+        except ArrError as exc:
+            return f"{name} is not responding: {exc}"
+        return None
+
     # -- entry point --------------------------------------------------------- #
 
     def run(self, list_id: str, dry_run: bool | None = None) -> SyncResult:
@@ -376,87 +399,203 @@ class SyncEngine:
         language_profile_id: int | None,
         target: Any,
     ) -> None:
-        for index, (item, ident) in enumerate(candidates):
-            label = item.label
+        settings_kwargs: dict[str, Any] = (
+            {
+                "quality_profile_id": quality_profile_id,
+                "root_folder": root_folder,
+                "minimum_availability": target.minimum_availability,
+                "monitored": target.monitored,
+                "search_on_add": search_on_add,
+                "tags": tags,
+            }
+            if media == "movie"
+            else {
+                "quality_profile_id": quality_profile_id,
+                "root_folder": root_folder,
+                "monitor": target.monitor,
+                "monitored": target.monitored,
+                "season_folder": target.season_folder,
+                "series_type": target.series_type,
+                "search_on_add": search_on_add,
+                "tags": tags,
+                "language_profile_id": language_profile_id,
+            }
+        )
 
-            if result.dry_run:
-                # Check the title actually resolves, so a dry run cannot promise
-                # an add that the real run will fail on. Read-only either way.
-                failure: Exception | None = None
-                try:
-                    resolved = (
-                        arr.resolve_for_add(ident, item.imdb_id or "")
-                        if media == "movie"
-                        else arr.lookup_tvdb(ident)
-                    )
-                    if not resolved:
-                        failure = arr.unknown_id(ident, item.imdb_id or "")
-                except ArrError as exc:
-                    failure = exc
+        if result.dry_run:
+            for item, ident in candidates:
+                self._dry_run_one(job, arr, media, item, ident, result)
+            return
 
-                if failure is None:
-                    result.added += 1
-                    result.added_titles.append(label)
-                    self.db.add_item(
-                        result.run_id, label, item.year, str(ident), "dry_run", "would be added"
-                    )
-                    log.info("[%s] Would add %s.", job.name, label)
-                else:
-                    result.failed += 1
-                    self.db.add_item(
-                        result.run_id, label, item.year, str(ident), "failed", str(failure)
-                    )
-                    log.error("[%s] Would fail on %s: %s", job.name, label, failure)
+        # Build a batch, then hand the whole thing to Radarr/Sonarr at once.
+        # One request per 50 titles rather than 50 requests lets the target
+        # resolve them against its metadata service in bulk, which is what
+        # keeps a large first sync from tripping rate limits.
+        batch: list[dict[str, Any]] = []
+        batch_meta: list[tuple[MediaItem, int]] = []
+
+        for item, ident in candidates:
+            record = self._record_for(arr, media, item, ident, job, result)
+            if record is None:
                 continue
 
-            try:
-                if media == "movie":
-                    arr.add_movie(
-                        ident,
-                        quality_profile_id=quality_profile_id,
-                        root_folder=root_folder,
-                        minimum_availability=target.minimum_availability,
-                        monitored=target.monitored,
-                        search_on_add=search_on_add,
-                        tags=tags,
-                        imdb_id=item.imdb_id or "",
-                    )
-                else:
-                    arr.add_series(
-                        ident,
-                        quality_profile_id=quality_profile_id,
-                        root_folder=root_folder,
-                        monitor=target.monitor,
-                        monitored=target.monitored,
-                        season_folder=target.season_folder,
-                        series_type=target.series_type,
-                        search_on_add=search_on_add,
-                        tags=tags,
-                        language_profile_id=language_profile_id,
-                    )
-            except ArrMetadataError as exc:
-                # The metadata service failed, not the title. Say so, and make
-                # clear the next scheduled run will pick it up.
-                result.failed += 1
-                self.db.add_item(result.run_id, label, item.year, str(ident), "failed", str(exc))
-                log.error(
-                    "[%s] Could not add %s: %s The next sync will retry it.",
-                    job.name,
-                    label,
-                    exc,
-                )
-            except ArrError as exc:
-                result.failed += 1
-                self.db.add_item(result.run_id, label, item.year, str(ident), "failed", str(exc))
-                log.error("[%s] Could not add %s: %s", job.name, label, exc)
+            if media == "movie":
+                batch.append(arr.movie_payload(record, **settings_kwargs))
             else:
-                result.added += 1
-                result.added_titles.append(label)
-                self.db.add_item(result.run_id, label, item.year, str(ident), "added", "")
-                log.info("[%s] Added %s.", job.name, label)
+                batch.append(arr.series_payload(record, **settings_kwargs))
+            batch_meta.append((item, ident))
 
-            if index < len(candidates) - 1 and settings.ADD_DELAY_SECONDS > 0:
-                time.sleep(settings.ADD_DELAY_SECONDS)
+            if len(batch) >= settings.BULK_BATCH_SIZE:
+                self._flush_batch(job, arr, media, batch, batch_meta, result, settings_kwargs)
+                batch, batch_meta = [], []
+                if settings.ADD_DELAY_SECONDS > 0:
+                    time.sleep(settings.ADD_DELAY_SECONDS)
+
+        self._flush_batch(job, arr, media, batch, batch_meta, result, settings_kwargs)
+
+    def _record_for(
+        self,
+        arr: Any,
+        media: str,
+        item: MediaItem,
+        ident: int,
+        job: ListJob,
+        result: SyncResult,
+    ) -> dict[str, Any] | None:
+        """Resolve the full target record a payload is built from."""
+        try:
+            record = (
+                arr.resolve_for_add(ident, item.imdb_id or "")
+                if media == "movie"
+                else arr.lookup_tvdb(ident)
+            )
+        except ArrError as exc:
+            self._record_failure(job, item, ident, result, exc)
+            return None
+        if not record:
+            self._record_failure(job, item, ident, result, arr.unknown_id(ident, item.imdb_id or ""))
+            return None
+        return record
+
+    def _flush_batch(
+        self,
+        job: ListJob,
+        arr: Any,
+        media: str,
+        batch: list[dict[str, Any]],
+        batch_meta: list[tuple[MediaItem, int]],
+        result: SyncResult,
+        settings_kwargs: dict[str, Any],
+    ) -> None:
+        if not batch:
+            return
+
+        id_field = "tmdbId" if media == "movie" else "tvdbId"
+        try:
+            added = (
+                arr.bulk_add_movies(batch) if media == "movie" else arr.bulk_add_series(batch)
+            )
+        except ArrError as exc:
+            # The whole batch was rejected. Fall back to adding them one at a
+            # time so each title gets a real reason rather than sharing one.
+            log.warning(
+                "[%s] Bulk add of %d titles failed (%s); retrying individually.",
+                job.name,
+                len(batch),
+                exc,
+            )
+            for item, ident in batch_meta:
+                self._add_one(job, arr, media, item, ident, result, settings_kwargs)
+            return
+
+        accepted = {entry.get(id_field) for entry in added if entry.get(id_field)}
+        for item, ident in batch_meta:
+            if ident in accepted:
+                result.added += 1
+                result.added_titles.append(item.label)
+                self.db.add_item(result.run_id, item.label, item.year, str(ident), "added", "")
+                log.info("[%s] Added %s.", job.name, item.label)
+            else:
+                # Accepted by the batch call but absent from the reply. Retry it
+                # alone to find out why instead of guessing.
+                log.debug(
+                    "[%s] %s was not in the bulk reply; retrying alone.", job.name, item.label
+                )
+                self._add_one(job, arr, media, item, ident, result, settings_kwargs)
+
+    def _add_one(
+        self,
+        job: ListJob,
+        arr: Any,
+        media: str,
+        item: MediaItem,
+        ident: int,
+        result: SyncResult,
+        settings_kwargs: dict[str, Any],
+    ) -> None:
+        try:
+            if media == "movie":
+                arr.add_movie(ident, imdb_id=item.imdb_id or "", **settings_kwargs)
+            else:
+                arr.add_series(ident, **settings_kwargs)
+        except ArrError as exc:
+            self._record_failure(job, item, ident, result, exc)
+        else:
+            result.added += 1
+            result.added_titles.append(item.label)
+            self.db.add_item(result.run_id, item.label, item.year, str(ident), "added", "")
+            log.info("[%s] Added %s.", job.name, item.label)
+
+    def _record_failure(
+        self, job: ListJob, item: MediaItem, ident: int, result: SyncResult, exc: Exception
+    ) -> None:
+        result.failed += 1
+        self.db.add_item(result.run_id, item.label, item.year, str(ident), "failed", str(exc))
+        if isinstance(exc, ArrMetadataError):
+            log.error(
+                "[%s] Could not add %s: %s The next sync will retry it.",
+                job.name,
+                item.label,
+                exc,
+            )
+        else:
+            log.error("[%s] Could not add %s: %s", job.name, item.label, exc)
+
+    def _dry_run_one(
+        self,
+        job: ListJob,
+        arr: Any,
+        media: str,
+        item: MediaItem,
+        ident: int,
+        result: SyncResult,
+    ) -> None:
+        """Resolve without writing, so a dry run cannot promise a failing add."""
+        failure: Exception | None = None
+        try:
+            resolved = (
+                arr.resolve_for_add(ident, item.imdb_id or "")
+                if media == "movie"
+                else arr.lookup_tvdb(ident)
+            )
+            if not resolved:
+                failure = arr.unknown_id(ident, item.imdb_id or "")
+        except ArrError as exc:
+            failure = exc
+
+        if failure is None:
+            result.added += 1
+            result.added_titles.append(item.label)
+            self.db.add_item(
+                result.run_id, item.label, item.year, str(ident), "dry_run", "would be added"
+            )
+            log.info("[%s] Would add %s.", job.name, item.label)
+        else:
+            result.failed += 1
+            self.db.add_item(
+                result.run_id, item.label, item.year, str(ident), "failed", str(failure)
+            )
+            log.error("[%s] Would fail on %s: %s", job.name, item.label, failure)
 
 
 def _plural(media: str, count: int) -> str:

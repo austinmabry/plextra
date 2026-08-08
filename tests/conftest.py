@@ -42,4 +42,25 @@ def client(tmp_path):
     global_db.path = tmp_path / "plextra.db"
 
     with TestClient(api_module.app) as test_client:
+        # Do what the browser does: take the CSRF cookie from a GET and echo it
+        # back in the header on every mutating request.
+        test_client.get("/api/health")
+        test_client.headers["X-CSRF-Token"] = test_client.cookies.get("plextra_csrf", "")
+        yield test_client
+
+
+@pytest.fixture
+def raw_client(tmp_path):
+    """A client that does *not* send the CSRF header, for testing the guard."""
+    from fastapi.testclient import TestClient
+
+    from plextra import api as api_module
+    from plextra.config import store as global_store
+    from plextra.db import db as global_db
+
+    global_store.path = tmp_path / "config.json"
+    global_store._config = None
+    global_db.path = tmp_path / "plextra.db"
+
+    with TestClient(api_module.app) as test_client:
         yield test_client

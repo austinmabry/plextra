@@ -67,10 +67,20 @@ function toast(message, kind) {
 
 /* -------------------------------------------------------------------- api */
 
+function csrfToken() {
+  const match = document.cookie.match(/(?:^|;\s*)plextra_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 async function api(path, options) {
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
     ...(options || {}),
+    headers: {
+      "Content-Type": "application/json",
+      // The server checks this against the cookie a cross-origin page cannot read.
+      "X-CSRF-Token": csrfToken(),
+      ...((options || {}).headers || {}),
+    },
   });
   if (response.status === 401) {
     showLogin();
@@ -226,7 +236,45 @@ async function renderDashboard() {
   );
 
   $("dashboard-runs").replaceChildren(runsTable(status.recent_runs, false));
+
+  const paused = status.scheduler_paused;
+  const toggle = $("scheduler-toggle");
+  toggle.textContent = paused ? "Resume scheduler" : "Pause scheduler";
+  toggle.className = paused ? "primary" : "ghost";
 }
+
+$("scheduler-toggle").addEventListener("click", async () => {
+  const paused = $("scheduler-toggle").textContent.startsWith("Pause");
+  try {
+    await put("/api/scheduler", { paused });
+    toast(paused ? "Scheduler paused." : "Scheduler resumed.", "ok");
+    renderDashboard();
+  } catch (exc) {
+    toast(exc.message, "err");
+  }
+});
+
+/* ------------------------------------------------------------------ theme */
+
+function applyTheme(theme) {
+  // No stored preference means follow the OS, which the stylesheet does on its own.
+  if (theme) document.documentElement.setAttribute("data-theme", theme);
+  else document.documentElement.removeAttribute("data-theme");
+}
+
+function currentTheme() {
+  const stored = localStorage.getItem("plextra-theme");
+  if (stored) return stored;
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+applyTheme(localStorage.getItem("plextra-theme"));
+
+$("theme-toggle").addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  localStorage.setItem("plextra-theme", next);
+  applyTheme(next);
+});
 
 /* ------------------------------------------------------------------ lists */
 

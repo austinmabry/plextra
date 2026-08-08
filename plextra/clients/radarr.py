@@ -140,9 +140,9 @@ class RadarrClient(ArrClient):
             "after the list was built."
         )
 
-    def add_movie(
-        self,
-        tmdb_id: int,
+    @staticmethod
+    def movie_payload(
+        record: dict[str, Any],
         *,
         quality_profile_id: int,
         root_folder: str,
@@ -150,13 +150,9 @@ class RadarrClient(ArrClient):
         monitored: bool = True,
         search_on_add: bool = True,
         tags: list[int] | None = None,
-        imdb_id: str = "",
     ) -> dict[str, Any]:
-        lookup = self.resolve_for_add(tmdb_id, imdb_id)
-        if not lookup:
-            raise self.unknown_id(tmdb_id, imdb_id)
-
-        payload = dict(lookup)
+        """Turn a Radarr lookup record into an add payload."""
+        payload = dict(record)
         payload.update(
             {
                 "qualityProfileId": quality_profile_id,
@@ -173,7 +169,60 @@ class RadarrClient(ArrClient):
         # A lookup result carries id 0; leaving it in makes Radarr treat the
         # POST as an update to a non-existent movie.
         payload.pop("id", None)
+        return payload
 
+    def bulk_add_movies(self, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Add many movies in one request via Radarr's bulk import endpoint.
+
+        Radarr handles a batch far better than the same titles one at a time:
+        it resolves the batch against its metadata service in one go rather than
+        once per title, which is what makes a large first sync trip rate limits.
+
+        Returns the records Radarr accepted. Anything absent from that list was
+        rejected, and the caller retries it individually to learn why.
+        """
+        if not payloads:
+            return []
+        response = self.request(
+            "POST",
+            "api/v3/movie/import",
+            json_body=payloads,
+            # A batch of 50 is a lot of work for Radarr; give it room.
+            timeout=max(120.0, 6.0 * len(payloads)),
+        )
+        if response.status_code not in (200, 201, 202):
+            raise ArrError(self.error_message(response))
+        try:
+            added = response.json()
+        except ValueError as exc:
+            raise ArrError("Radarr sent a non-JSON reply to the bulk import.") from exc
+        return [entry for entry in added if isinstance(entry, dict)]
+
+    def add_movie(
+        self,
+        tmdb_id: int,
+        *,
+        quality_profile_id: int,
+        root_folder: str,
+        minimum_availability: str = "released",
+        monitored: bool = True,
+        search_on_add: bool = True,
+        tags: list[int] | None = None,
+        imdb_id: str = "",
+    ) -> dict[str, Any]:
+        lookup = self.resolve_for_add(tmdb_id, imdb_id)
+        if not lookup:
+            raise self.unknown_id(tmdb_id, imdb_id)
+
+        payload = self.movie_payload(
+            lookup,
+            quality_profile_id=quality_profile_id,
+            root_folder=root_folder,
+            minimum_availability=minimum_availability,
+            monitored=monitored,
+            search_on_add=search_on_add,
+            tags=tags,
+        )
         response = self.request("POST", "api/v3/movie", json_body=payload)
         if response.status_code in (200, 201):
             return response.json()

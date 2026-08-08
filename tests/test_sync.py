@@ -88,6 +88,9 @@ def radarr(monkeypatch):
         "imdb": {},
         # TMDb IDs Radarr's metadata server cannot serve.
         "unresolvable": set(),
+        "bulk_calls": [],
+        "single_adds": [],
+        "bulk_broken": False,
     }
 
     class FakeRadarr:
@@ -99,6 +102,9 @@ def radarr(monkeypatch):
 
         def __exit__(self, *exc):
             return False
+
+        def system_status(self):
+            return {"version": "5.2.6", "appName": "Radarr"}
 
         def library_ids(self):
             return set(state["library"]), set(state["library_imdb"])
@@ -118,11 +124,30 @@ def radarr(monkeypatch):
         def unknown_id(tmdb_id, imdb_id=""):
             return ArrError(f"Radarr does not recognise TMDb {tmdb_id}")
 
+        @staticmethod
+        def movie_payload(record, **kwargs):
+            return {"tmdbId": record["tmdbId"], **kwargs}
+
+        def bulk_add_movies(self, payloads):
+            state["bulk_calls"].append(len(payloads))
+            if state["bulk_broken"]:
+                raise ArrError("bulk endpoint unavailable")
+            accepted = []
+            for payload in payloads:
+                tmdb_id = payload["tmdbId"]
+                if tmdb_id in state["fail"]:
+                    continue  # omitted from the reply, so the engine retries it alone
+                state["added"].append((tmdb_id, payload))
+                accepted.append({"tmdbId": tmdb_id})
+            return accepted
+
         def add_movie(self, tmdb_id, **kwargs):
+            state["single_adds"].append(tmdb_id)
             if tmdb_id in state["fail"]:
                 raise ArrError("Radarr said no")
             if tmdb_id in state["unresolvable"]:
                 raise self.unknown_id(tmdb_id)
+            kwargs.pop("imdb_id", None)
             state["added"].append((tmdb_id, kwargs))
             return {"id": 1}
 
@@ -140,6 +165,9 @@ def sonarr(monkeypatch):
         "languages": True,
         "resolve": {},
         "unresolvable": set(),
+        "fail": set(),
+        "bulk_calls": [],
+        "single_adds": [],
     }
 
     class FakeSonarr:
@@ -151,6 +179,9 @@ def sonarr(monkeypatch):
 
         def __exit__(self, *exc):
             return False
+
+        def system_status(self):
+            return {"version": "4.0.0", "appName": "Sonarr"}
 
         def library_ids(self):
             return set(state["library"]), set(state["library_imdb"])
@@ -173,10 +204,28 @@ def sonarr(monkeypatch):
         def resolve_tvdb_id(self, imdb_id="", tmdb_id=None):
             return state["resolve"].get(imdb_id) or state["resolve"].get(tmdb_id)
 
+        @staticmethod
+        def series_payload(record, **kwargs):
+            return {"tvdbId": record["tvdbId"], **kwargs}
+
+        def bulk_add_series(self, payloads):
+            state["bulk_calls"].append(len(payloads))
+            accepted = []
+            for payload in payloads:
+                tvdb_id = payload["tvdbId"]
+                if tvdb_id in state["fail"]:
+                    continue
+                state["added"].append((tvdb_id, payload))
+                accepted.append({"tvdbId": tvdb_id})
+            return accepted
+
         def add_series(self, tvdb_id, **kwargs):
+            state["single_adds"].append(tvdb_id)
             # Mirror the real client, which resolves before it posts.
             if tvdb_id in state["unresolvable"]:
                 raise self.unknown_id(tvdb_id)
+            if tvdb_id in state["fail"]:
+                raise ArrError("Sonarr said no")
             state["added"].append((tvdb_id, kwargs))
             return {"id": 1}
 
@@ -272,6 +321,87 @@ class TestHappyPath:
         source_items["items"] = [movie(1, "One")]
         engine.run(add_list(store, name="Watchlist").id)
         assert source_items.get("closed") is True
+
+
+class TestBulkAdd:
+    """One request per batch, not per title.
+
+    Radarr and Sonarr resolve a batch against their metadata service in one go,
+    which is what keeps a large first sync from tripping rate limits.
+    """
+
+    def test_a_whole_list_goes_in_one_request(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(i, f"Film {i}") for i in range(1, 26)]
+
+        result = engine.run(add_list(store, name="Big list").id)
+
+        assert result.added == 25
+        assert radarr["bulk_calls"] == [25]
+        assert radarr["single_adds"] == []
+
+    def test_batches_are_capped(self, engine, store, source_items, radarr, monkeypatch):
+        monkeypatch.setattr("plextra.sync.settings.BULK_BATCH_SIZE", 10)
+        source_items["items"] = [movie(i, f"Film {i}") for i in range(1, 26)]
+
+        engine.run(add_list(store, name="Big list").id)
+
+        assert radarr["bulk_calls"] == [10, 10, 5]
+
+    def test_settings_reach_the_payload(self, engine, store, source_items, radarr):
+        source_items["items"] = [movie(1, "One")]
+        store.mutate(lambda c: setattr(c.radarr, "tags", [7]))
+
+        engine.run(add_list(store, name="Watchlist").id)
+
+        _, payload = radarr["added"][0]
+        assert payload["quality_profile_id"] == 4
+        assert payload["root_folder"] == "/movies"
+        assert payload["tags"] == [7]
+
+    def test_a_title_the_batch_rejects_is_retried_alone(
+        self, engine, store, database, source_items, radarr
+    ):
+        """The bulk reply says which titles it took, not why it refused one."""
+        source_items["items"] = [movie(1, "Good"), movie(2, "Bad")]
+        radarr["fail"] = {2}
+
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert (result.added, result.failed) == (1, 1)
+        assert radarr["single_adds"] == [2]
+        reasons = {i["title"]: i["reason"] for i in database.run_items(result.run_id)}
+        assert reasons["Bad (2016)"] == "Radarr said no"
+
+    def test_falls_back_when_the_bulk_endpoint_is_unavailable(
+        self, engine, store, source_items, radarr
+    ):
+        """Older or proxied instances may not serve the import endpoint."""
+        source_items["items"] = [movie(1, "One"), movie(2, "Two")]
+        radarr["bulk_broken"] = True
+
+        result = engine.run(add_list(store, name="Watchlist").id)
+
+        assert result.added == 2
+        assert radarr["single_adds"] == [1, 2]
+
+    def test_shows_batch_too(self, engine, store, source_items, sonarr):
+        source_items["items"] = [tvshow(i, f"Show {i}") for i in range(1, 6)]
+
+        result = engine.run(add_list(store, name="Shows", media_type="show").id)
+
+        assert result.added == 5
+        assert sonarr["bulk_calls"] == [5]
+
+    def test_dry_run_never_touches_the_bulk_endpoint(
+        self, engine, store, source_items, radarr
+    ):
+        source_items["items"] = [movie(1, "One"), movie(2, "Two")]
+
+        result = engine.run(add_list(store, name="Watchlist").id, dry_run=True)
+
+        assert result.added == 2
+        assert radarr["bulk_calls"] == []
+        assert radarr["added"] == []
 
 
 class TestIdResolution:
@@ -510,6 +640,63 @@ class TestFailures:
     def test_unknown_list_raises(self, engine):
         with pytest.raises(SyncConfigError):
             engine.run("does-not-exist")
+
+
+class TestPreflightAndPause:
+    """A target that is simply down should not fill History with failures."""
+
+    def test_preflight_passes_when_the_target_answers(self, engine, store, radarr):
+        job = add_list(store, name="Watchlist")
+        assert engine.preflight(job.id) is None
+
+    def test_preflight_reports_an_unconfigured_target(self, engine, store, radarr):
+        store.mutate(lambda c: setattr(c.radarr, "api_key", ""))
+        job = add_list(store, name="Watchlist")
+        assert "not enabled or not configured" in engine.preflight(job.id)
+
+    def test_preflight_reports_an_unreachable_target(self, engine, store, monkeypatch):
+        from plextra.clients import ArrError
+
+        class DeadRadarr:
+            def __init__(self, url, api_key):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def system_status(self):
+                raise ArrError("Connection refused")
+
+        monkeypatch.setattr("plextra.sync.RadarrClient", DeadRadarr)
+        job = add_list(store, name="Watchlist")
+        assert "not responding" in engine.preflight(job.id)
+
+    def test_a_scheduled_run_is_skipped_while_paused(
+        self, engine, store, database, source_items, radarr
+    ):
+        from plextra.scheduler import SyncScheduler
+
+        source_items["items"] = [movie(1, "One")]
+        job = add_list(store, name="Watchlist")
+        store.mutate(lambda c: setattr(c.scheduler, "paused", True))
+
+        SyncScheduler(store, engine, database)._run_job(job.id)
+
+        assert radarr["added"] == []
+        assert database.recent_runs(limit=5) == []
+
+    def test_a_manual_run_still_works_while_paused(
+        self, engine, store, source_items, radarr
+    ):
+        """Pausing stops the schedule, not the Run button."""
+        source_items["items"] = [movie(1, "One")]
+        job = add_list(store, name="Watchlist")
+        store.mutate(lambda c: setattr(c.scheduler, "paused", True))
+
+        assert engine.run(job.id).added == 1
 
 
 class TestHistory:

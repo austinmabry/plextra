@@ -18,6 +18,62 @@ class TestHealthAndPages:
         assert client.get("/favicon.svg").status_code == 200
 
 
+class TestCsrf:
+    """Everything here mutates a real library, so a cross-site page must not
+    be able to drive it just by knowing the port."""
+
+    def test_a_mutating_request_without_a_token_is_refused(self, raw_client):
+        response = raw_client.post("/api/lists", json={"name": "Injected"})
+        assert response.status_code == 403
+        assert "CSRF" in response.json()["detail"]
+
+    def test_the_refusal_explains_what_to_do(self, raw_client):
+        detail = raw_client.post("/api/lists", json={}).json()["detail"]
+        assert "plextra_csrf" in detail and "X-CSRF-Token" in detail
+
+    def test_a_wrong_token_is_refused(self, raw_client):
+        raw_client.get("/api/health")
+        raw_client.headers["X-CSRF-Token"] = "not-the-real-token"
+        assert raw_client.post("/api/lists", json={"name": "X"}).status_code == 403
+
+    def test_reads_are_unaffected(self, raw_client):
+        assert raw_client.get("/api/health").status_code == 200
+        assert raw_client.get("/api/config").status_code == 200
+
+    def test_a_get_hands_out_a_token(self, raw_client):
+        raw_client.get("/api/health")
+        assert raw_client.cookies.get("plextra_csrf")
+
+    def test_echoing_the_cookie_back_works(self, raw_client):
+        raw_client.get("/api/health")
+        raw_client.headers["X-CSRF-Token"] = raw_client.cookies.get("plextra_csrf")
+        assert raw_client.post("/api/lists", json={"name": "Fine"}).status_code == 200
+
+    def test_nothing_was_created_by_the_refused_request(self, raw_client):
+        raw_client.post("/api/lists", json={"name": "Injected"})
+        assert raw_client.get("/api/lists").json()["lists"] == []
+
+
+class TestSecurityHeaders:
+    def test_headers_are_set(self, client):
+        headers = client.get("/").headers
+        assert headers["X-Frame-Options"] == "DENY"
+        assert headers["X-Content-Type-Options"] == "nosniff"
+        assert headers["Referrer-Policy"] == "no-referrer"
+
+    def test_the_csp_blocks_framing_and_foreign_script(self, client):
+        csp = client.get("/").headers["Content-Security-Policy"]
+        assert "frame-ancestors 'none'" in csp
+        assert "script-src 'self'" in csp
+        assert "default-src 'self'" in csp
+
+    def test_the_csp_allows_no_inline_script(self, client):
+        """All script lives in static files, so this can stay strict."""
+        csp = client.get("/").headers["Content-Security-Policy"]
+        script = next(p for p in csp.split("; ") if p.startswith("script-src"))
+        assert "unsafe-inline" not in script and "unsafe-eval" not in script
+
+
 class TestAuth:
     def test_open_by_default(self, client):
         status = client.get("/api/auth/status").json()
@@ -28,13 +84,13 @@ class TestAuth:
     def test_setting_a_password_locks_the_api(self, client):
         assert client.put("/api/auth/password", json={"password": "s3cret"}).status_code == 200
 
-        client.cookies.clear()
+        client.cookies.delete("plextra_session")
         assert client.get("/api/config").status_code == 401
         assert client.get("/api/health").status_code == 200
 
     def test_login_with_the_right_password(self, client):
         client.put("/api/auth/password", json={"password": "s3cret"})
-        client.cookies.clear()
+        client.cookies.delete("plextra_session")
 
         assert client.post("/api/auth/login", json={"password": "nope"}).status_code == 401
         assert client.post("/api/auth/login", json={"password": "s3cret"}).status_code == 200
@@ -43,12 +99,12 @@ class TestAuth:
     def test_password_can_be_removed(self, client):
         client.put("/api/auth/password", json={"password": "s3cret"})
         client.put("/api/auth/password", json={"password": ""})
-        client.cookies.clear()
+        client.cookies.delete("plextra_session")
         assert client.get("/api/config").status_code == 200
 
     def test_forged_cookie_rejected(self, client):
         client.put("/api/auth/password", json={"password": "s3cret"})
-        client.cookies.clear()
+        client.cookies.delete("plextra_session")
         client.cookies.set("plextra_session", "1700000000.deadbeef")
         assert client.get("/api/config").status_code == 401
 

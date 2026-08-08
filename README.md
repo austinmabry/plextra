@@ -30,6 +30,11 @@ unmonitors or modifies anything you already have.
 - **Honest history.** Every title gets a recorded outcome and a reason — added,
   already present, filtered, excluded or failed.
 - **Add-only by design.** No delete, no unmonitor, no library cleaning.
+- **Bulk import.** Titles go over in batches, not one request each, so a big
+  first sync does not hammer Radarr's metadata service.
+- **Credentials encrypted at rest**, with CSRF protection and a strict
+  Content-Security-Policy on the web UI.
+- **Light and dark themes**, following your system by default.
 - **Multi-arch.** `linux/amd64` and `linux/arm64`, so it runs on a NAS or a Pi.
 
 ## Quick start
@@ -196,6 +201,11 @@ liked, so there are no URLs to paste.
 
 ![The list editor, showing source, selection, schedule and filter options](docs/screenshots/list-editor.png)
 
+The whole UI has a light theme too, switchable from the sidebar and following
+your system by default.
+
+![The Lists view in the light theme](docs/screenshots/lists-light.png)
+
 **Use Dry run first.** It walks the whole pipeline and records exactly what it
 would add, without writing anything. It also resolves every candidate, so a
 title Radarr has no metadata for is reported up front rather than promised and
@@ -293,8 +303,12 @@ Everything lives in `/config`, which should be a mounted volume:
 - `config.json` — settings, lists and Trakt tokens, written `0600`
 - `plextra.db` — run history, last 200 runs
 
-`config.json` holds API keys and OAuth tokens in the clear, the same as Radarr's
-and Sonarr's own config files. Back it up accordingly.
+API keys and OAuth tokens inside `config.json` are encrypted. By default the key
+is generated into `/config/secret.key` (mode 0600), which protects a stray copy
+of `config.json` but not a copy of the whole volume — the key is sitting next to
+it. Set `PLEXTRA_SECRET_KEY` to a passphrase to keep the key off the volume
+entirely, which is the stronger arrangement. Back up `secret.key` alongside the
+config, or the stored credentials cannot be read back.
 
 ### Environment variables
 
@@ -304,10 +318,12 @@ and Sonarr's own config files. Back it up accordingly.
 | `PLEXTRA_PORT` | `9898` | Listen port |
 | `PLEXTRA_LOG_LEVEL` | `INFO` | `DEBUG` logs every per-title filter decision |
 | `PLEXTRA_PASSWORD` | unset | Seeds the web password on first boot only |
+| `PLEXTRA_SECRET_KEY` | unset | Passphrase for encrypting stored credentials. Keeps the key off the config volume |
 | `PLEXTRA_COOKIE_SECURE` | `false` | Set `true` when served over HTTPS |
 | `PLEXTRA_CONFIG_DIR` | `/config` | Config and database location |
 | `PLEXTRA_MAX_TRAKT_PAGES` | `20` | Page cap per sync (100 items per page) |
-| `PLEXTRA_ADD_DELAY` | `0.5` | Seconds between adds |
+| `PLEXTRA_ADD_DELAY` | `0.5` | Seconds between batches of adds |
+| `PLEXTRA_BULK_BATCH_SIZE` | `50` | Titles per bulk import request |
 
 ### Security
 
@@ -316,7 +332,20 @@ Settings → Security unless the port is genuinely private. It warns in the log 
 every boot until you do. `/api/health` stays open for Docker's healthcheck;
 everything else requires the session cookie.
 
+Beyond that: stored credentials are encrypted at rest, every mutating request
+needs a CSRF token, and responses carry a Content-Security-Policy that permits
+no inline or remote script, plus `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy` and `Cross-Origin-Opener-Policy`.
+
 Set `PLEXTRA_COOKIE_SECURE=true` behind an HTTPS reverse proxy.
+
+Scripted clients must read the `plextra_csrf` cookie from any GET and send it
+back in an `X-CSRF-Token` header:
+
+```bash
+TOKEN=$(curl -s -c /tmp/jar http://localhost:9898/api/health >/dev/null && awk '/plextra_csrf/{print $7}' /tmp/jar)
+curl -b /tmp/jar -H "X-CSRF-Token: $TOKEN" -X POST http://localhost:9898/api/lists/<id>/run
+```
 
 ## Troubleshooting
 
@@ -357,6 +386,10 @@ publish.
 **Cron never fires.** Set `TZ`. Cron is evaluated in the container's timezone,
 which is UTC unless you say otherwise. An invalid expression is logged at startup
 and the list is not scheduled.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

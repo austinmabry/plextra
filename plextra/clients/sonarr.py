@@ -130,9 +130,9 @@ class SonarrClient(ArrClient):
             return None
         return match
 
-    def add_series(
-        self,
-        tvdb_id: int,
+    @staticmethod
+    def series_payload(
+        record: dict[str, Any],
         *,
         quality_profile_id: int,
         root_folder: str,
@@ -144,11 +144,8 @@ class SonarrClient(ArrClient):
         tags: list[int] | None = None,
         language_profile_id: int | None = None,
     ) -> dict[str, Any]:
-        lookup = self.lookup_tvdb(tvdb_id)
-        if not lookup:
-            raise self.unknown_id(tvdb_id)
-
-        payload = dict(lookup)
+        """Turn a Sonarr lookup record into an add payload."""
+        payload = dict(record)
         payload.update(
             {
                 "qualityProfileId": quality_profile_id,
@@ -167,7 +164,56 @@ class SonarrClient(ArrClient):
         if language_profile_id is not None:
             payload["languageProfileId"] = language_profile_id
         payload.pop("id", None)
+        return payload
 
+    def bulk_add_series(self, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Add many series in one request. See RadarrClient.bulk_add_movies."""
+        if not payloads:
+            return []
+        response = self.request(
+            "POST",
+            "api/v3/series/import",
+            json_body=payloads,
+            timeout=max(120.0, 6.0 * len(payloads)),
+        )
+        if response.status_code not in (200, 201, 202):
+            raise ArrError(self.error_message(response))
+        try:
+            added = response.json()
+        except ValueError as exc:
+            raise ArrError("Sonarr sent a non-JSON reply to the bulk import.") from exc
+        return [entry for entry in added if isinstance(entry, dict)]
+
+    def add_series(
+        self,
+        tvdb_id: int,
+        *,
+        quality_profile_id: int,
+        root_folder: str,
+        monitor: str = "all",
+        monitored: bool = True,
+        season_folder: bool = True,
+        series_type: str = "standard",
+        search_on_add: bool = False,
+        tags: list[int] | None = None,
+        language_profile_id: int | None = None,
+    ) -> dict[str, Any]:
+        lookup = self.lookup_tvdb(tvdb_id)
+        if not lookup:
+            raise self.unknown_id(tvdb_id)
+
+        payload = self.series_payload(
+            lookup,
+            quality_profile_id=quality_profile_id,
+            root_folder=root_folder,
+            monitor=monitor,
+            monitored=monitored,
+            season_folder=season_folder,
+            series_type=series_type,
+            search_on_add=search_on_add,
+            tags=tags,
+            language_profile_id=language_profile_id,
+        )
         response = self.request("POST", "api/v3/series", json_body=payload)
         if response.status_code in (200, 201):
             return response.json()

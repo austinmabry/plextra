@@ -1,7 +1,7 @@
 <h1 align="center">Sidecarr</h1>
 
 <p align="center">
-  Sync lists from Trakt, TMDb, MDBList, IMDb, Plex and anywhere else
+  Sync lists from Trakt, TMDb, MDBList, Plex and anywhere else
   into Radarr and Sonarr — from a browser, in Docker.
 </p>
 
@@ -18,8 +18,9 @@ Point Sidecarr at the lists you already keep — wherever you keep them — and 
 adds what is missing to Radarr or Sonarr on a schedule. It never removes,
 unmonitors or modifies anything you already have.
 
-- **Eight list providers.** Trakt, TMDb, MDBList, IMDb, Plex, StevenLu, another
-  Radarr/Sonarr instance, or any URL that returns a list.
+- **Eight list providers.** Trakt, TMDb, MDBList, Plex, StevenLu, another
+  Radarr/Sonarr instance, a pasted list or CSV file, or any URL that returns a
+  list. Every one uses a published interface — nothing here scrapes.
 - **Configured entirely in the browser.** No config file to hand-edit, no CLI to
   cron. Port 9898.
 - **Per-list filters and schedules.** Year, runtime, rating, votes, genres,
@@ -130,36 +131,11 @@ lists in and ignore the rest.
 | **Trakt** | Client ID + secret; an account for private lists | Watchlist, custom list, collection, personal recommendations, trending, popular, anticipated, box office, most watched/played, by person |
 | **TMDb** | A free API key | Discover (incl. streaming services), custom list, collection, company, keyword, person, popular, top rated, trending, upcoming, now playing, on the air, airing today |
 | **MDBList** | A free API key | Any list by URL/slug/ID, your own lists, your watchlist, the public top lists |
-| **IMDb** | Nothing | Any public `ls…` list, plus the Top 250, Most Popular, Top English and box office charts |
-| **Letterboxd** | Nothing | Any public watchlist, list, or someone's watched films (films only) |
 | **Plex** | A Plex token | Your Plex Discover watchlist |
 | **StevenLu** | Nothing | The published popular-movies list (movies only) |
 | **Another Radarr / Sonarr** | Its URL + API key | Mirror a second instance's library |
 | **Paste or file** | Nothing | A list pasted into the box, or a CSV/JSON file in `/config` |
 | **Custom list** | Nothing | Any URL returning JSON, RSS/Atom, CSV, or a list of IDs |
-
-### Letterboxd
-
-Point it at a username and pick a watchlist, a list, or everything they have
-watched. Pasting a full URL into either field works — the username and list slug
-are pulled out of it. The profile or list has to be public.
-
-Letterboxd has no public API, and they return 403 for their own watchlist and
-list RSS feeds, so this reads the ordinary web pages. Two consequences worth
-knowing before you build a list around it:
-
-- **No metadata, so metadata filters cannot work.** A list page carries a title
-  and a year and nothing else. Filter a Letterboxd list by genre, runtime or
-  rating and everything drops out, because nothing can be judged. Use the limit
-  instead, or run the same list through MDBList, which returns full metadata.
-- **It is a scrape, so it can break.** If Letterboxd changes their markup, the
-  list will fail loudly with "No films found" rather than quietly syncing zero
-  titles. Parsing is deliberately confined to one pattern to keep that easy to fix.
-
-IDs are resolved exactly, but lazily. Each film's own page carries its TMDb ID,
-and Sidecarr fetches that page only for the titles that survive filtering and are
-not already in your library — so a 600-film watchlist is not 600 requests. Any
-title that misses falls back to Radarr's search.
 
 ### Discover, and "what's on Netflix"
 
@@ -240,8 +216,8 @@ Contributions welcome — the provider interface is the easy part.
 
 ### 1. A list provider
 
-Set up whichever you actually use. IMDb, StevenLu, another Radarr/Sonarr and
-custom URLs need no credentials at all, so this step is often skippable.
+Set up whichever you actually use. StevenLu, another Radarr/Sonarr, pasted lists
+and custom URLs need no credentials at all, so this step is often skippable.
 
 | Provider | Where to get it |
 | --- | --- |
@@ -311,14 +287,14 @@ nothing until you say so.
 ## Matching IDs across providers
 
 Radarr identifies movies by TMDb ID and Sonarr identifies series by TVDb ID, but
-most providers hand out something else — MDBList and IMDb lead with IMDb IDs,
+most providers hand out something else — MDBList leads with IMDb IDs,
 and TMDb has no TVDb ID for shows. Sidecarr closes the gap in three steps:
 
 1. Use the ID the provider gave, if it is already the right one.
 2. Ask the provider — TMDb, for instance, can turn its own show ID into a TVDb one.
 3. Ask Radarr or Sonarr, whose own search already knows the cross-mappings.
 
-Step 3 means an IMDb-only list works with no extra API key at all. Resolution is
+Step 3 means a list carrying only IMDb IDs works with no extra API key at all. Resolution is
 lazy, running only for titles that survive filtering and are about to be added,
 so a long list does not cost a lookup per entry. Anything unresolvable is
 recorded in History rather than silently vanishing.
@@ -343,13 +319,14 @@ candidates that might not. `Sort` runs before the limit, so limit + sort by vote
 gives the ten most-voted eligible titles.
 
 A filter can only judge metadata the provider actually sent, and providers differ
-enormously. Trakt and TMDb are rich; an IMDb list or a bare custom URL may give
-little more than an ID. Filtering an IMDb list by year or genre therefore rejects
-everything — the reason recorded in History names the provider
-(`no release year from IMDb`) so this is visible rather than mysterious. Use the
-limit instead, or pull the same list through MDBList, which does return metadata.
-TMDb's list endpoints carry no runtime, so runtime filters have nothing to judge
-there either.
+enormously. Trakt and TMDb are rich; a bare custom URL or a Letterboxd export may
+give little more than a title. Filtering such a list by genre therefore rejects
+everything — the reason recorded in History names the provider (`no release year
+from Paste or file`) so this is visible rather than mysterious. Use the limit
+instead, or pull the same list through MDBList, which does return metadata. An
+IMDb CSV export is the exception: it carries rating, runtime and genres, so
+filters work on it. TMDb's list endpoints carry no runtime, so runtime filters
+have nothing to judge there either.
 
 ### Coming from traktarr
 
@@ -523,13 +500,12 @@ program, so it is worth knowing which is which.
 | **Another Radarr / Sonarr** | Your own instance's API, with your own key |
 | **Paste or file** | Nothing is fetched — you supply the data |
 | **Custom list** | Whatever URL you point it at, which makes its terms yours to check |
-| **IMDb** | ⚠️ Reads public web pages. IMDb's Conditions of Use prohibit this |
-| **Letterboxd** | ⚠️ Reads public web pages. Letterboxd's Terms of Use prohibit this |
 
-### About the two marked ⚠️
+### IMDb and Letterboxd
 
-Neither IMDb nor Letterboxd offers a usable public list API, so those providers
-read the ordinary web pages. Both services' terms forbid that in plain language.
+Sidecarr had providers for both. They read the services' web pages, because
+neither offers a usable public list API — and both services' terms forbid exactly
+that, in plain language.
 
 IMDb's Conditions of Use:
 
@@ -544,18 +520,24 @@ Letterboxd's Terms of Use:
 > tool, program, or algorithm to access, acquire, copy, or monitor any portion of
 > the Service.
 
-These are contract terms rather than criminal statutes, and the realistic
-consequence is that the service blocks you. But it is their call, not ours, and
-you should decide with your eyes open.
+**Both providers were removed in 0.4.0.** Shipping them meant handing users a way
+to get themselves blocked over terms they had not read, which is not a reasonable
+thing to do to someone who just wanted their watchlist synced.
 
-**There is a clean alternative for both.** Each service publishes an official
-export of your own data, through the interface they provide:
+Use the official export instead. Both services publish one, through the interface
+they provide, and it is a better source anyway:
 
-- **Letterboxd** — Settings → Import & Export → Export your data
-- **IMDb** — any list page → Export
+- **Letterboxd** — Settings → Import & Export → Export your data. The ZIP holds
+  `watchlist.csv`, `watched.csv` and one CSV per list.
+- **IMDb** — open any list → Export. Your ratings export works too.
 
-Feed the resulting CSV to the **Paste or file** provider. Nothing is scraped, no
-terms are strained, and the export carries more metadata than the pages do.
+Point a **Paste or file** list at the CSV. IMDb's export even carries ratings,
+runtime and genres, so filters work on it — which they never could on the
+scraped pages.
+
+If you already had a list using either provider, it is disabled on upgrade with
+that explanation attached, and kept intact. Re-point it at an export and it picks
+up its old filters, schedule and history.
 
 ## Legal
 

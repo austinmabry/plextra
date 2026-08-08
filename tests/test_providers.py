@@ -229,50 +229,6 @@ class TestPlex:
         assert PlexProvider._items([{"type": "movie", "title": "No guids"}], "movie") == []
 
 
-class TestImdb:
-    @pytest.mark.parametrize(
-        "given", ["ls123456789", "https://www.imdb.com/list/ls123456789/", "  ls123456789 "]
-    )
-    def test_list_id_forms(self, given):
-        from sidecarr.providers.imdb import _list_id
-
-        assert _list_id(given) == "ls123456789"
-
-    def test_bad_list_id_is_reported(self):
-        from sidecarr.providers.imdb import _list_id
-
-        with pytest.raises(ProviderError, match="not an IMDb list"):
-            _list_id("my-favourites")
-
-    def test_extracts_titles_from_embedded_json(self):
-        from sidecarr.providers.imdb import _extract
-
-        html = """<script type="application/json">
-        {"a": {"items": [
-          {"id": "tt0133093", "titleText": {"text": "The Matrix"},
-           "releaseYear": {"year": 1999}},
-          {"id": "tt0111161", "titleText": {"text": "The Shawshank Redemption"},
-           "releaseYear": {"year": 1994}}
-        ]}}</script>"""
-        items = _extract(html)
-        assert [(i.title, i.year) for i in items] == [
-            ("The Matrix", 1999), ("The Shawshank Redemption", 1994),
-        ]
-
-    def test_falls_back_to_bare_ids(self):
-        from sidecarr.providers.imdb import _extract
-
-        items = _extract('<a href="/title/tt0133093/">x</a><a href="/title/tt0111161/">y</a>')
-        assert [i.ids for i in items] == [{"imdb": "tt0133093"}, {"imdb": "tt0111161"}]
-        assert all(i.title == "" for i in items)
-
-    def test_chart_media_mismatch_is_explained(self, config):
-        provider = providers.build("imdb", config)
-        source = Source(provider="imdb", type="chart", options={"chart": "toptv"})
-        with pytest.raises(ProviderError, match="shows chart"):
-            provider.fetch(source, "movie")
-
-
 class TestCustom:
     def test_requires_a_url(self, config):
         provider = providers.build("custom", config)

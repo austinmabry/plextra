@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- **The IMDb and Letterboxd providers.** Both read the services' web pages, and
+  both services' terms forbid exactly that in plain language - IMDb: "You may not
+  use data mining, robots, screen scraping, or similar data gathering and
+  extraction tools on this site"; Letterboxd: "you must not employ any robot,
+  spider, scraper, deep-link, or other automated data gathering or extraction
+  tool". Shipping them meant handing users a way to get blocked over terms they
+  had not read.
+
+  Both services publish an official export instead, which the **Paste or file**
+  provider already reads - and IMDb's carries rating, runtime and genres, so
+  filters work on it where they never could on the scraped pages.
+
+  Existing lists using either provider are **disabled on upgrade**, with the
+  reason shown against the list, rather than failing every few hours. The list,
+  its filters, its schedule and its history are kept, so re-pointing it at an
+  export is a small edit.
+
 ### Added
 
 - **TMDb attribution**, as their API terms require, in the README and on the

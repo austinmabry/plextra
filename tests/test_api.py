@@ -267,8 +267,7 @@ class TestProviders:
         payload = client.get("/api/providers").json()["providers"]
         keys = {p["key"] for p in payload}
         assert keys == {
-            "trakt", "tmdb", "mdblist", "imdb", "letterboxd", "plex", "stevenlu",
-            "arr", "text", "custom",
+            "trakt", "tmdb", "mdblist", "plex", "stevenlu", "arr", "text", "custom",
         }
 
     def test_descriptor_carries_what_the_editor_needs(self, client):
@@ -283,7 +282,7 @@ class TestProviders:
 
     def test_keyless_providers_are_configured_out_of_the_box(self, client):
         payload = {p["key"]: p for p in client.get("/api/providers").json()["providers"]}
-        for key in ("imdb", "stevenlu", "custom", "arr"):
+        for key in ("stevenlu", "custom", "arr", "text"):
             assert payload[key]["configured"] is True, key
 
     def test_status_reports_provider_readiness(self, client):
@@ -481,3 +480,93 @@ class TestSeededPassword:
 
         reloaded = ConfigStore(tmp_path / "config.json").load()
         assert verify_password("chosen-in-gui", reloaded.auth.password_hash)
+
+
+class TestRetiredProviders:
+    """IMDb and Letterboxd were withdrawn in 0.4.0 because both services' terms
+    forbid reading their pages. Anyone already syncing one has lists pointing at
+    a provider that no longer exists, and those must not simply start failing."""
+
+    def imdb_list(self, client, name="Old IMDb list"):
+        return client.post(
+            "/api/lists",
+            json={"name": name, "source": {"provider": "imdb", "type": "chart"}},
+        )
+
+    def test_a_new_list_cannot_be_created_for_one(self, client):
+        response = self.imdb_list(client)
+        assert response.status_code == 422
+        assert "removed in 0.4.0" in response.text
+
+    def test_the_refusal_names_the_replacement(self, client):
+        assert "Paste or file" in self.imdb_list(client).text
+
+    def test_they_are_gone_from_the_editor(self, client):
+        keys = {p["key"] for p in client.get("/api/providers").json()["providers"]}
+        assert "imdb" not in keys and "letterboxd" not in keys
+
+    def test_an_existing_list_is_disabled_rather_than_left_to_fail(self, client, tmp_path):
+        """A run every few hours forever, with an error that reads like a bug,
+        is the wrong way to tell someone a decision was made."""
+        from sidecarr import api as api_module
+        from sidecarr.config import ListJob, Source, store
+
+        store.mutate(
+            lambda config: config.lists.append(
+                ListJob(name="IMDb Top 250", enabled=True,
+                        source=Source(provider="imdb", type="chart"))
+            )
+        )
+        api_module.retire_withdrawn_lists()
+
+        job = store.config.lists[-1]
+        assert job.enabled is False
+
+    def test_the_list_itself_is_kept(self, client):
+        """Filters, schedule and history are worth re-pointing at an export."""
+        from sidecarr import api as api_module
+        from sidecarr.config import ListJob, Source, store
+
+        store.mutate(
+            lambda config: config.lists.append(
+                ListJob(name="Keep me", limit=42,
+                        source=Source(provider="letterboxd", type="watchlist"))
+            )
+        )
+        api_module.retire_withdrawn_lists()
+
+        job = next(j for j in store.config.lists if j.name == "Keep me")
+        assert job.limit == 42
+        assert job.source.provider == "letterboxd"
+
+    def test_the_reason_is_shown_against_the_list(self, client):
+        from sidecarr import api as api_module
+        from sidecarr.config import ListJob, Source, store
+
+        store.mutate(
+            lambda config: config.lists.append(
+                ListJob(name="Old", source=Source(provider="letterboxd", type="watchlist"))
+            )
+        )
+        api_module.retire_withdrawn_lists()
+
+        entry = next(l for l in client.get("/api/lists").json()["lists"] if l["name"] == "Old")
+        assert "Terms of Use prohibit" in entry["retired"]
+
+    def test_a_live_provider_carries_no_such_note(self, client):
+        client.post("/api/lists", json={"name": "Fine", "source": {"provider": "trakt"}})
+        entry = next(l for l in client.get("/api/lists").json()["lists"] if l["name"] == "Fine")
+        assert entry["retired"] == ""
+
+    def test_retiring_is_idempotent(self, client):
+        from sidecarr import api as api_module
+        from sidecarr.config import ListJob, Source, store
+
+        store.mutate(
+            lambda config: config.lists.append(
+                ListJob(name="Twice", source=Source(provider="imdb", type="chart"))
+            )
+        )
+        api_module.retire_withdrawn_lists()
+        api_module.retire_withdrawn_lists()
+        assert sum(1 for j in store.config.lists if j.name == "Twice") == 1

@@ -141,6 +141,36 @@ class ConnectionTestRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
+def retire_withdrawn_lists() -> None:
+    """Disable lists whose provider no longer exists, and say why once.
+
+    Leaving them enabled would mean a failed run every few hours forever, with
+    an error that reads like a bug rather than a decision. Disabling keeps the
+    list, its filters and its history intact, so re-pointing it at the same data
+    from an export is a small edit rather than a rebuild.
+    """
+    affected = [
+        job
+        for job in store.config.lists
+        if job.enabled and providers.retired_reason(job.source.provider)
+    ]
+    if not affected:
+        return
+
+    def apply(config: AppConfig) -> None:
+        for job in config.lists:
+            if providers.retired_reason(job.source.provider):
+                job.enabled = False
+
+    store.mutate(apply)
+    for job in affected:
+        log.warning(
+            "Disabled the list %r: %s",
+            job.name,
+            providers.retired_reason(job.source.provider),
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine, scheduler
@@ -148,6 +178,7 @@ async def lifespan(app: FastAPI):
     settings.warn_about_legacy_env()
     settings.migrate_legacy_paths()
     store.load()
+    retire_withdrawn_lists()
     db.init()
     engine = SyncEngine(store, db)
     scheduler = SyncScheduler(store, engine, db)
@@ -536,6 +567,7 @@ def list_jobs() -> dict[str, Any]:
                 "next_run": next_runs.get(job.id),
                 "running": job.id in running,
                 "queued": pending.get(job.id, 0),
+                "retired": providers.retired_reason(job.source.provider),
                 "last_run": db.recent_runs(limit=1, list_id=job.id),
             }
             for job in store.config.lists

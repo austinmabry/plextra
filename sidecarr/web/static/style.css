@@ -199,6 +199,8 @@ td.actions button { margin-left: 4px; }
 .pill.ok { color: var(--ok); border-color: var(--ok); }
 .pill.err { color: var(--err); border-color: var(--err); }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
+/* An explanation attached to a list, e.g. why its provider was withdrawn. */
+.warn-text { color: var(--warn); max-width: 46ch; margin-top: 4px; line-height: 1.4; }
 .pill.idle { color: var(--muted); }
 
 .empty { color: var(--muted); padding: 26px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
